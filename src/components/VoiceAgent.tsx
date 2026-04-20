@@ -105,7 +105,7 @@ export default function VoiceAgent() {
       
       // Add a small cooldown after stopping to prevent rapid restarts
       setIsCooldown(true);
-      setTimeout(() => setIsCooldown(false), 3000);
+      setTimeout(() => setIsCooldown(false), 1000);
 
       if (phase === 'instruction') {
         setPhase('experiment');
@@ -354,8 +354,6 @@ export default function VoiceAgent() {
           >
             {isConnecting ? (
               <Loader2 className="animate-spin mx-auto" size={24} />
-            ) : isCooldown ? (
-              error?.includes("quota") ? "QUOTA LIMIT..." : "WAIT..."
             ) : isActive ? (
               phase === 'instruction' ? "STOP INSTRUCTION" : "STOP EXPERIMENT"
             ) : (

@@ -73,8 +73,8 @@ CONVERSATION GUIDELINES:
 
 export class LiveAudioSession {
 
-  private static readonly SNR_DB = 15; 
-  private static readonly NOISE_VOLUME = 1.0;
+  private static readonly SNR_DB = 0; 
+  private static readonly SIGNAL_VOLUME = 1.0;
   
   // Noise Configuration
   private static readonly NOISE_TYPE: 'SPEECH_SHAPED' | 'FILE' = 'FILE';
@@ -103,6 +103,7 @@ export class LiveAudioSession {
   private recordingProcessor: ScriptProcessorNode | null = null;
   private recordingDestination: MediaStreamAudioDestinationNode | null = null;
   private hrtfType: 'BUILTIN' | 'CUSTOM' | 'NONE' = 'BUILTIN';
+  private hrirBuffer: AudioBuffer | null = null;
 
   constructor(apiKey: string) {
     if (!apiKey) {
@@ -166,15 +167,14 @@ export class LiveAudioSession {
     this.noiseSource.buffer = buffer;
     this.noiseSource.loop = true;
     
-    const gain = this.audioContext.createGain();
-    gain.gain.value = LiveAudioSession.NOISE_VOLUME;
+    const noiseGainNode = this.audioContext.createGain();
+    // Calculate noise gain relative to signal = 1.0
+    // SNR = 20 * log10(Signal/Noise) => Noise = Signal / 10^(SNR/20)
+    const noiseLevel = LiveAudioSession.SIGNAL_VOLUME / Math.pow(10, LiveAudioSession.SNR_DB / 20);
+    noiseGainNode.gain.value = noiseLevel;
     
-    this.noiseSource.connect(gain);
-    gain.connect(this.audioContext.destination);
-    
-    //if (this.recordingDestination) {
-    //  gain.connect(this.recordingDestination);
-    //}
+    this.noiseSource.connect(noiseGainNode);
+    noiseGainNode.connect(this.audioContext.destination);
     
     this.noiseSource.start();
   }
@@ -197,13 +197,8 @@ export class LiveAudioSession {
       }
 
       this.voiceGainNode = this.audioContext.createGain();
-      // Phase 1 (no noise): gain = 1.0. Phase 2 (noise): gain based on SNR
-      if (shouldPlayNoise) {
-        const voiceGain = LiveAudioSession.NOISE_VOLUME * Math.pow(10, LiveAudioSession.SNR_DB / 20);
-        this.voiceGainNode.gain.value = voiceGain;
-      } else {
-        this.voiceGainNode.gain.value = 1.0;
-      }
+      // Signal is locked at unity to prevent clipping in the browser
+      this.voiceGainNode.gain.value = LiveAudioSession.SIGNAL_VOLUME;
       this.voiceGainNode.connect(this.audioContext.destination);
 
       // Setup Recording (WAV)
@@ -223,7 +218,8 @@ export class LiveAudioSession {
 
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
-      this.analyser.connect(this.audioContext.destination);
+      // Note: We don't connect the analyser to the destination to avoid doubling the audio.
+      // It stays as a probe node for the visualizer.
       
       if (shouldPlayNoise) {
         this.startNoise();
@@ -368,8 +364,10 @@ export class LiveAudioSession {
       } else if (this.hrtfType === 'CUSTOM') {
         this.convolver = this.audioContext.createConvolver();
         try {
-          const hrirBuffer = await this.loadHRIR(this.audioContext, LiveAudioSession.CUSTOM_HRIR_URL);
-          this.convolver.buffer = hrirBuffer;
+          if (!this.hrirBuffer) {
+            this.hrirBuffer = await this.loadHRIR(this.audioContext, LiveAudioSession.CUSTOM_HRIR_URL);
+          }
+          this.convolver.buffer = this.hrirBuffer;
           this.convolver.connect(this.voiceGainNode);
         } catch (err) {
           console.error("Failed to load custom HRIR, falling back to BUILTIN panner:", err);
@@ -410,9 +408,6 @@ export class LiveAudioSession {
   private stopPlayback() {
     this.audioQueue = [];
     this.nextStartTime = 0;
-    // In a real implementation, we might want to stop the current source node
-    // but ScriptProcessor doesn't give us easy access to the active source nodes.
-    // For simplicity, we just clear the queue.
   }
 
   private floatTo16BitPCM(input: Float32Array): Int16Array {
