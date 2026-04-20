@@ -1,0 +1,8 @@
+# .gitattributes
+*.png binary
+*.mp3 binary
+*.wav binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
