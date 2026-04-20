@@ -78,10 +78,10 @@ export class LiveAudioSession {
   
   // Noise Configuration
   private static readonly NOISE_TYPE: 'SPEECH_SHAPED' | 'FILE' = 'FILE';
-  private static readonly NOISE_FILE_URL = '/audios/07_Cafe_1_binaural_withEQ.mp3'; // Change this to your stereo file path
+  private static readonly NOISE_FILE_URL = `${import.meta.env.BASE_URL}audios/07_Cafe_1_binaural_withEQ.mp3`; 
   
   // Spatialization Configuration
-  private static readonly CUSTOM_HRIR_URL = '/audios/07_Cafe_1_RIR_0deg_binaural_withEQ.wav'; // Path to your HRIR file
+  private static readonly CUSTOM_HRIR_URL = `${import.meta.env.BASE_URL}audios/07_Cafe_1_RIR_0deg_binaural_withEQ.wav`; 
   // --------------------------
 
   private ai: any;
