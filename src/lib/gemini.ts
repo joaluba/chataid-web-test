@@ -73,7 +73,7 @@ CONVERSATION GUIDELINES:
 
 export class LiveAudioSession {
 
-  private static readonly SNR_DB = 0; 
+  private static readonly SNR_DB = 5; 
   private static readonly SIGNAL_VOLUME = 1.0;
   
   // Noise Configuration
