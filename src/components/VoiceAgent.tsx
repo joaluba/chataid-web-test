@@ -341,7 +341,7 @@ export default function VoiceAgent() {
       <div className="w-full max-w-xl mb-8">
         <div className="w-full aspect-[3/1] rounded-sm border border-black flex items-center justify-center relative overflow-hidden">
           <img 
-            src="/chataid-web-test/images/coffee.png" 
+            src="/images/coffee.png" 
             alt="Cafe Vinyl" 
             className="absolute inset-0 w-full h-full object-cover opacity-80"
             referrerPolicy="no-referrer"
