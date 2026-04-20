@@ -1,0 +1,7 @@
+{
+  "name": "Remix: Remix: Remix: ChatAid Communication Test",
+  "description": "Measuring communication abilities with AI voice agent",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
