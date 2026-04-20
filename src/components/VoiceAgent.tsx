@@ -340,8 +340,7 @@ export default function VoiceAgent() {
       {/* Main Interaction Area (The "Image/Gradient" Panel) */}
       <div className="w-full max-w-xl mb-8">
         <div className="w-full aspect-[3/1] rounded-sm border border-black flex items-center justify-center relative overflow-hidden">
-          <img 
-            src={`${import.meta.env.BASE_URL}images/coffee.png`}
+          <img src="https://res.cloudinary.com/dqttqwfib/image/upload/f_auto,q_auto/coffee_hkkblh"
             alt="Cafe Vinyl" 
             className="absolute inset-0 w-full h-full object-cover opacity-80"
             referrerPolicy="no-referrer"

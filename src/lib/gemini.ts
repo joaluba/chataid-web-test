@@ -73,15 +73,15 @@ CONVERSATION GUIDELINES:
 
 export class LiveAudioSession {
 
-  private static readonly SNR_DB = -40; 
+  private static readonly SNR_DB = 15; 
   private static readonly NOISE_VOLUME = 1.0;
   
   // Noise Configuration
   private static readonly NOISE_TYPE: 'SPEECH_SHAPED' | 'FILE' = 'FILE';
-  private static readonly NOISE_FILE_URL = `${import.meta.env.BASE_URL}audios/cafe_noise.mp3`; 
+  private static readonly NOISE_FILE_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776700340/cafe_noise_bin_pbsmfe.mp3";
   
   // Spatialization Configuration
-  private static readonly CUSTOM_HRIR_URL = `${import.meta.env.BASE_URL}audios/cafe_rir.wav`; 
+  private static readonly CUSTOM_HRIR_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776699826/cafe_rir_bin_pnaczh.wav"; 
   // --------------------------
 
   private ai: any;

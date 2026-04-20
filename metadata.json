@@ -1,6 +1,6 @@
 {
-  "name": "Remix: Remix: Remix: ChatAid Communication Test",
-  "description": "Measuring communication abilities with AI voice agent",
+  "name": "ChatAid: Speech Communication Test",
+  "description": "Research tool for measuring communication abilities with an AI voice agent in noise environments",
   "requestFramePermissions": [
     "microphone"
   ]
