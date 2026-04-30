@@ -127,7 +127,6 @@ export default function VoiceAgent() {
         await sessionRef.current.start({
           systemInstruction: phase === 'instruction' ? INSTRUCTION_PROMPT : EXPERIMENT_PROMPT,
           shouldPlayNoise: phase === 'experiment',
-          hrtfType: phase === 'instruction' ? 'NONE' : 'CUSTOM',
           onError: (err) => {
             const errorMessage = err?.message || String(err);
             console.log(err)
@@ -189,19 +188,31 @@ export default function VoiceAgent() {
     downloadFile(answersContent, `${prefix}answers.txt`);
     downloadFile(infoContent, `${prefix}info.txt`);
     
-    // Download audio recording if available
-    const recordingBlob = sessionRef.current?.getRecording();
-    if (recordingBlob) {
-      setTimeout(() => {
-        const url = URL.createObjectURL(recordingBlob);
+    // Download audio recordings if available
+    const recordings = sessionRef.current?.getRecordings();
+    if (recordings) {
+      const id = participantAlias || "recording";
+      
+      const downloadBlob = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${prefix}recording.wav`;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-      }, 200);
+      };
+
+      if (recordings.transcript) {
+        setTimeout(() => downloadBlob(recordings.transcript!, `${id}_transcript.wav`), 200);
+      }
+      if (recordings.voice) {
+        setTimeout(() => downloadBlob(recordings.voice!, `${id}_voice.wav`), 400);
+      }
+      if (recordings.noise) {
+        setTimeout(() => downloadBlob(recordings.noise!, `${id}_noise.wav`), 600);
+      }
     }
   };
 

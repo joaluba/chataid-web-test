@@ -1,5 +1,5 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="images/chataid-test.svg" />
+<img width="1200" height="475" alt="GHBanner" src="public/images/chataid-test.svg" />
 </div>
 
 ## Chat Aid: The Voice Agent To Assess Speech Communication  
