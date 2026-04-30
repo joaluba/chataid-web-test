@@ -120,7 +120,7 @@ CONVERSATION GUIDELINES:
 export class LiveAudioSession {
 
   // ----- PARAMETERS OF ACOUSTIC ENVIRONMENT ----
-  private static readonly SNR_DB = -3; 
+  public static readonly SNR_DB = 5; 
   private static readonly SIGNAL_VOLUME = 0.8;
   private static readonly NOISE_FILE_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776700340/cafe_noise_bin_pbsmfe.mp3";
   private static readonly CUSTOM_HRIR_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776699826/cafe_rir_bin_pnaczh.wav"; 

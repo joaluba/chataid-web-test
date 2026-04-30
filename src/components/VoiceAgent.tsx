@@ -3,7 +3,7 @@ import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
 
-const APP_VER_INFO = "App version: v0.0.1 (signal flow and snr ok)";
+const APP_VER_INFO = `App version: v0.0.1 (signal flow and snr ok) SNR=${LiveAudioSession.SNR_DB}`;
 
 const AudioVisualizer = ({ session }: { session: LiveAudioSession | null }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -227,7 +227,7 @@ export default function VoiceAgent() {
   if (!isFormSubmitted) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black relative">
-        <div className="absolute top-4 left-0 right-0 text-center text-[10px] text-gray-400 uppercase tracking-widest font-medium">
+        <div className="absolute bottom-4 left-4 text-[10px] text-gray-400 uppercase tracking-widest font-medium">
           {APP_VER_INFO}
         </div>
         <div className="w-full max-w-md border border-black rounded-[40px] p-8 md:p-10 my-8">
@@ -343,7 +343,7 @@ export default function VoiceAgent() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black relative">
-      <div className="absolute top-4 left-0 right-0 text-center text-[10px] text-gray-400 uppercase tracking-widest font-medium">
+      <div className="absolute bottom-4 left-4 text-[10px] text-gray-400 uppercase tracking-widest font-medium">
         {APP_VER_INFO}
       </div>
       {/* Header */}
