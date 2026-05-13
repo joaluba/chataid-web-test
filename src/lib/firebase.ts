@@ -5,21 +5,32 @@ import { getAuth, signInAnonymously } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyDKc8fFb13X65O2frNvmgypsp-3Ru85VYg",
-  authDomain: "chataid-6d36d.firebaseapp.com",
-  projectId: "chataid-6d36d",
-  storageBucket: "chataid-6d36d.firebasestorage.app",
-  messagingSenderId: "427781867551",
-  appId: "1:427781867551:web:97f759b781bf948a8e2d2a"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const auth = getAuth(app);
+// Check if configuration is present
+const isConfigValid = !!firebaseConfig.apiKey;
+
+if (!isConfigValid) {
+  console.warn("Firebase API Key is missing. Please configure environment variables in AI Studio settings.");
+}
+
+// Initialize Firebase (safely)
+const app = isConfigValid ? initializeApp(firebaseConfig) : null;
+export const db = app ? getFirestore(app) : null as any;
+export const storage = app ? getStorage(app) : null as any;
+export const auth = app ? getAuth(app) : null as any;
 
 export const loginAnonymously = async () => {
+    if (!auth) {
+        console.error("Firebase Auth not initialized. Check your environment variables.");
+        return;
+    }
     try {
         await signInAnonymously(auth);
     } catch (e) {

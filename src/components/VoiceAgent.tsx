@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
-import { db, loginAnonymously } from "../lib/firebase";
+import { db, loginAnonymously, auth } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
 
-const APP_VER_INFO = `App version: v0.0.2 (First Questionnaire) SNR=${LiveAudioSession.SNR_DB}`;
+const APP_VER_INFO = `App version: v0.0.3 (Questionnaire + improved data handling) SNR=${LiveAudioSession.SNR_DB}`;
 
 const QUESTIONNAIRE_STRUCTURE = [
   {
@@ -158,6 +158,7 @@ export default function VoiceAgent() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [passphraseError, setPassphraseError] = useState(false);
+  const [isConfigMissing, setIsConfigMissing] = useState(!import.meta.env.VITE_FIREBASE_API_KEY);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
     QUESTIONNAIRE_STRUCTURE.forEach(cat => {
@@ -341,6 +342,34 @@ export default function VoiceAgent() {
       sessionRef.current?.stop();
     };
   }, []);
+
+  if (isConfigMissing) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black">
+        <div className="w-full max-w-lg border-2 border-red-500 rounded-[40px] p-10 text-center space-y-8 bg-red-50">
+          <h1 className="text-2xl font-bold text-red-600">Configuration Required</h1>
+          <div className="text-left space-y-4 text-sm text-gray-700">
+            <p>The Firebase environment variables are missing. Please configure them in AI Studio:</p>
+            <ol className="list-decimal list-inside space-y-2">
+              <li>Open <strong>Settings</strong> (gear icon) in the sidebar.</li>
+              <li>Go to <strong>Environment Variables</strong>.</li>
+              <li>Add the following keys from your Firebase Console:
+                <ul className="mt-2 ml-6 font-mono text-xs bg-white p-3 border border-red-200 rounded">
+                  <li>VITE_FIREBASE_API_KEY</li>
+                  <li>VITE_FIREBASE_AUTH_DOMAIN</li>
+                  <li>VITE_FIREBASE_PROJECT_ID</li>
+                  <li>VITE_FIREBASE_STORAGE_BUCKET</li>
+                  <li>VITE_FIREBASE_MESSAGING_SENDER_ID</li>
+                  <li>VITE_FIREBASE_APP_ID</li>
+                </ul>
+              </li>
+            </ol>
+            <p className="italic text-xs">The app will automatically refresh once these variables are saved.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthorized) {
     const handleAuthorize = () => {
