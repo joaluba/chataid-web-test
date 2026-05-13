@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
+import { db, loginAnonymously } from "../lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import JSZip from "jszip";
 
 const APP_VER_INFO = `App version: v0.0.2 (First Questionnaire) SNR=${LiveAudioSession.SNR_DB}`;
 
@@ -151,28 +154,40 @@ export default function VoiceAgent() {
   const [isFormSubmitted, setIsFormSubmitted] = useState(false);
   const [isQuestionnaireActive, setIsQuestionnaireActive] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
-  const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, number>>({});
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [passphraseError, setPassphraseError] = useState(false);
+  const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    QUESTIONNAIRE_STRUCTURE.forEach(cat => {
+      cat.questions.forEach(q => {
+        initial[q.id] = 4;
+      });
+    });
+    return initial;
+  });
   
-  const [participantAlias, setParticipantAlias] = useState("");
-  const [participantAge, setParticipantAge] = useState("");
-  const [gender, setGender] = useState("");
-  const [isNativeSpeaker, setIsNativeSpeaker] = useState("");
-  const [hearingStatus, setHearingStatus] = useState("");
-  const [isListeningExpert, setIsListeningExpert] = useState("");
-  const [hasConsented, setHasConsented] = useState(false);
+  const [participantAlias, setParticipantAlias] = useState("Tester");
+  const [participantAge, setParticipantAge] = useState("25");
+  const [gender, setGender] = useState("Male");
+  const [isNativeSpeaker, setIsNativeSpeaker] = useState("yes");
+  const [hearingStatus, setHearingStatus] = useState("Normal hearing");
+  const [isListeningExpert, setIsListeningExpert] = useState("no");
+  const [hasConsented, setHasConsented] = useState(true);
   const [userApiKey, setUserApiKey] = useState("");
 
   const [tasks, setTasks] = useState([
-    { id: 1, text: "Price of coffee with milk", understanding: "" },
-    { id: 2, text: "Milk options", understanding: "" },
-    { id: 3, text: "Is vegan milk more expensive?", understanding: "" },
-    { id: 4, text: "What's the cafe specialty cake?", understanding: "" },
-    { id: 5, text: "Name of the wifi", understanding: "" },
-    { id: 6, text: "Password of the Wifi", understanding: "" },
-    { id: 7, text: "Maximum table duration", understanding: "" },
-    { id: 8, text: "Evening event", understanding: "" },
-    { id: 9, text: "Artist name", understanding: "" },
-    { id: 10, text: "Cafe's closing time", understanding: "" },
+    { id: 1, text: "Price of coffee with milk", understanding: "Test answer" },
+    { id: 2, text: "Milk options", understanding: "Test answer" },
+    { id: 3, text: "Is vegan milk more expensive?", understanding: "Test answer" },
+    { id: 4, text: "What's the cafe specialty cake?", understanding: "Test answer" },
+    { id: 5, text: "Name of the wifi", understanding: "Test answer" },
+    { id: 6, text: "Password of the Wifi", understanding: "Test answer" },
+    { id: 7, text: "Maximum table duration", understanding: "Test answer" },
+    { id: 8, text: "Evening event", understanding: "Test answer" },
+    { id: 9, text: "Artist name", understanding: "Test answer" },
+    { id: 10, text: "Cafe's closing time", understanding: "Test answer" },
   ]);
 
   const updateTask = (id: number, field: "understanding", value: string) => {
@@ -247,22 +262,11 @@ export default function VoiceAgent() {
     setIsQuestionnaireActive(true);
   };
 
-  const finalizeSession = () => {
-    // 1. Prepare Answers (Tasks)
-    const answersContent = tasks
-      .map(task => `${task.text}: ${task.understanding || "No answer provided"}`)
-      .join("\n");
-    
-    // 2. Prepare Questionnaire Answers
-    const allQuestions = QUESTIONNAIRE_STRUCTURE.flatMap(cat => cat.questions);
-    const questionnaireContent = Object.entries(questionnaireAnswers)
-      .map(([id, val]) => {
-        const q = allQuestions.find(q => q.id === id);
-        return `${q?.text || id}: ${val}`;
-      })
-      .join("\n");
+  const finalizeSession = async () => {
+    setIsUploading(true);
+    setError(null);
 
-    // 3. Complete Dictionary for database-ready export
+    // 1. Prepare Full Data Dictionary
     const fullDataDictionary = {
       participant: {
         alias: participantAlias,
@@ -280,61 +284,56 @@ export default function VoiceAgent() {
       }
     };
 
-    // 4. Prepare User Form Info
-    const infoContent = `Participant Alias: ${participantAlias}
-Age: ${participantAge}
-Gender: ${gender}
-Native English Speaker: ${isNativeSpeaker}
-Hearing Status: ${hearingStatus}
-Listening Expert: ${isListeningExpert}`;
-    
-    // Helper to trigger download
-    const downloadFile = (content: string, filename: string) => {
-      const blob = new Blob([content], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
+    try {
+      // 2. Auth for security
+      await loginAnonymously();
+
+      // 3. Upload to Firestore (Text Data)
+      let docId = "local_backup";
+      try {
+        const docRef = await addDoc(collection(db, "results"), {
+          ...fullDataDictionary,
+          serverTimestamp: serverTimestamp()
+        });
+        docId = docRef.id;
+      } catch (firestoreErr) {
+        console.error("Firestore upload failed:", firestoreErr);
+        // We'll continue even if Firestore fails
+      }
+
+      // 4. Create ZIP and trigger download
+      const zip = new JSZip();
+      
+      // Add JSON data
+      zip.file(`${docId}_data.json`, JSON.stringify(fullDataDictionary, null, 2));
+
+      // Add audio recordings if available
+      const recordings = sessionRef.current?.getRecordings();
+      if (recordings) {
+        if (recordings.transcript) zip.file(`${docId}_transcript.wav`, recordings.transcript);
+        if (recordings.voice) zip.file(`${docId}_voice.wav`, recordings.voice);
+        if (recordings.noise) zip.file(`${docId}_noise.wav`, recordings.noise);
+      }
+
+      // Generate and download
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = `${docId}_${participantAlias || "anonymous"}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    };
-
-    const prefix = participantAlias ? `${participantAlias}_` : "";
-
-    // Trigger downloads
-    downloadFile(JSON.stringify(fullDataDictionary, null, 2), `${prefix}full_data.json`);
-    
-    // Download audio recordings if available
-    const recordings = sessionRef.current?.getRecordings();
-    if (recordings) {
-      const id = participantAlias || "recording";
       
-      const downloadBlob = (blob: Blob, filename: string) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      };
-
-      if (recordings.transcript) {
-        setTimeout(() => downloadBlob(recordings.transcript!, `${id}_transcript.wav`), 200);
-      }
-      if (recordings.voice) {
-        setTimeout(() => downloadBlob(recordings.voice!, `${id}_voice.wav`), 400);
-      }
-      if (recordings.noise) {
-        setTimeout(() => downloadBlob(recordings.noise!, `${id}_noise.wav`), 600);
-      }
+      setIsFinished(true);
+      setIsQuestionnaireActive(false);
+    } catch (err: any) {
+      console.error("Critical finalize error:", err);
+      setError("An error occurred during export. Your data has been recorded in our database, but the local download might have failed.");
+    } finally {
+      setIsUploading(false);
     }
-
-    setIsFinished(true);
-    setIsQuestionnaireActive(false);
   };
 
   useEffect(() => {
@@ -342,6 +341,51 @@ Listening Expert: ${isListeningExpert}`;
       sessionRef.current?.stop();
     };
   }, []);
+
+  if (!isAuthorized) {
+    const handleAuthorize = () => {
+      // Define your passphrase here
+      if (passphrase === "ChatAid2026") {
+        setIsAuthorized(true);
+      } else {
+        setPassphraseError(true);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black">
+        <div className="w-full max-w-sm border border-black rounded-[40px] p-10 text-center space-y-8">
+          <h1 className="text-2xl font-medium">Restricted Access</h1>
+          <p className="text-gray-500 text-sm italic leading-relaxed">
+            Please enter the passphrase provided by the researcher to continue.
+          </p>
+          <div className="space-y-4">
+            <input
+              type="password"
+              value={passphrase}
+              onChange={(e) => {
+                setPassphrase(e.target.value);
+                setPassphraseError(false);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleAuthorize()}
+              className={`w-full text-center text-sm bg-transparent border-b ${passphraseError ? "border-red-500" : "border-black"} pb-1 focus:outline-none`}
+              placeholder="Enter passphrase"
+              autoFocus
+            />
+            {passphraseError && (
+              <p className="text-[10px] text-red-500 italic">Incorrect passphrase. Please try again.</p>
+            )}
+          </div>
+          <button
+            onClick={handleAuthorize}
+            className="w-full py-3 bg-black text-white rounded-lg text-lg font-medium hover:bg-gray-800 transition-colors shadow-lg"
+          >
+            Enter
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isFinished) {
     return (
@@ -432,17 +476,33 @@ Listening Expert: ${isListeningExpert}`;
             ))}
           </div>
 
-          <div className="mt-24 flex flex-col items-center gap-6 border-t border-black pt-16">
+          <div className="mt-24 flex flex-col items-center gap-6 border-t border-black pt-16 uppercase tracking-tight">
             {!allQuestionsAnswered && (
               <p className="text-xs text-red-400 italic animate-pulse">Please answer all questions to export your data.</p>
             )}
-            <button
-              onClick={finalizeSession}
-              disabled={!allQuestionsAnswered}
-              className="px-12 py-3 bg-black text-white rounded-lg text-lg font-medium hover:bg-gray-800 transition-all shadow-lg disabled:bg-gray-200 disabled:text-gray-400 disabled:border-transparent disabled:cursor-not-allowed"
-            >
-              Finish & Export Data
-            </button>
+            
+            <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
+              <button
+                onClick={finalizeSession}
+                disabled={!allQuestionsAnswered || isUploading}
+                className="px-12 py-3 bg-black text-white rounded-lg text-lg font-medium hover:bg-gray-800 transition-all shadow-lg disabled:bg-gray-200 disabled:text-gray-400 disabled:border-transparent disabled:cursor-not-allowed flex items-center justify-center gap-3"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="animate-spin w-5 h-5" />
+                    Exporting...
+                  </>
+                ) : (
+                  "Finish & Export Data"
+                )}
+              </button>
+            </div>
+
+            {error && (
+              <div className="text-center p-4 bg-red-50 border border-red-100 rounded-xl max-w-lg">
+                <p className="text-xs text-red-600">{error}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
