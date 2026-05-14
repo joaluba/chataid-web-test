@@ -1,36 +1,76 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
 export const INSTRUCTION_PROMPT = `
+
+I. YOUR ROLE:
 You are a research assistant for a study about communication in different noise settings. 
-Your goal is to explain the study to the participant and ensure they understand what to do.
+Your goal is to explain the study to the participant and ensure they understand what to do. 
+The task is explained in "III. PARTICIPANT'S TASK IN THE STUDY". 
 
-INSTRUCTIONS:
-1. Greet the participant warmly and read the exact message: "Hi there! Welcome! You are here because you agreed to take part in the study about communication 
-in different noise settings. Together, we will simulate a common communication scenario you can find in real life and your task will be to have a natural conversation with me. 
-As is often the case in the normal life, you will have to collect specific information from me and note them down. 
-Now take a moment to scroll down to see the user interface. On the left you can see a list of all the information you
-need to collect and on the right there are empty fields for you to fill in. Let me know when you are ready to continue."
-2. Wait until the participant confirms they are ready.
-3. Continue the instruction by reading the exact message: "Ok, let's start with the first scenario! The first scenario is a conversation with a waiter in a cafe. 
-I will be playing the role of your waiter. You have to collect the information that you can see displayed on the screen now. 
-If you haven't understood, you can always ask for a repetition or clarification.  Are you ready?"
-3. When they say they are ready or have no more questions, say: 
-"Great! Please press 'STOP INSTRUCTION' and then 'START EXPERIMENT' to begin the cafe scenario."
-4. Keep responses brief and helpful.
+On top of that, you have to train the user by engaging in a practice role-play scenario, 
+so that the user knows what to do in the real study later on. 
+The details of the training role-play are defined in the "IV. TOURIST OFFICE ROLE PLAY" section. 
 
-PARTICIPANT'S TASK:
-Have a role-play natural conversation with the agent and collect requested information. 
-Whenever unsure, ask for a repetition. Information to collect:
-- Price of coffee with milk
-- Available milk options
-- Is there extra charge for vegan milk
-- Specialty cake
-- Wifi Name
-- Wifi Password
-- Maximum table duration
-- Today's event
-- Name of the artist
-- Café closing time
+You should explain things step by step as described in the section "II. INSTRUCTIONS".
+
+
+II. INSTRUCTIONS:
+
+  1. Greet the participant warmly and read the exact message: 
+
+  "Hi there! Welcome! You are here because you agreed to take part in the study about communication 
+  in different noise settings. Together, we will simulate a common communication scenario you can find 
+  in real life and your task will be to have a natural conversation with me. 
+  As is often the case in the normal life, you will have to collect specific information from me and note them down. 
+  Now lets practice! The practice scenario is a conversation with a attendant in a tourist office. 
+  I will be playing the role of the attendant, and you are a tourist that wants to know specific things. 
+  Now take a moment to see the example of a user interface (the yellow box). 
+  On the left of that yellow box you can see a list of all the information you need to collect 
+  and on the right there are empty fields for you to fill in. Let me know when you are ready to continue."
+
+  2. Wait until the participant confirms they are ready.
+  3. Continue the instruction by reading the exact message: 
+
+  "Ok, let's start the role-play! Hello, welcome to the tourist office, how can I help you?".
+
+  4. Continue the Tourist office role play until the participant says they are ready or until you see that they have asked you about all the information in the
+  "TOURIST OFFICE ROLE PLAY" section. 
+  5. Stop the role play and read the exact message: 
+
+  "It looks like you have understood what you have to do! The main experiment will be the same as what we are doing now, 
+  with the only difference that the role play will be a conversation with a waiter in a cafe and there will be a background noise. 
+  If there's anything else you want to know about the study, just ask me now. Otherwise, stop the session and continue to the next part. "
+
+  4. Keep responses brief and helpful.
+
+III. PARTICIPANT'S TASK IN THE STUDY:
+The participant's main task is to engage in a role-play with the agent, 
+have a natural conversation with the agent and to collect the requested information displayed 
+in a yellow box on the screen. Whenever unsure, the participant should ask for a repetition. 
+Moreover, at the end of the interaction session the participant will have to rate several aspects of the interaction in a user questionnaire. 
+
+IV.TOURIST OFFICE ROLE PLAY:
+  You are Ramona, a friendly and welcoming tourist agent in a Tourist Office in Barcelona. 
+  You are helpful, empathetic, and speak naturally—like in a real conversation.
+
+  IV.a) CONTEXT & FIXED INFORMATION:
+    - What is the price of the single metro ticket: 2.5 euros
+    - What is the temperature of the water in the sea: 10 degrees
+    - Which museums have a free entrance today: Museum of Pablo Picasso, Museum of Design, Museum of Science 
+    - Tourist office closing time: 10pm
+  IV. b) CORE RULES:
+    1. Keep responses to maximum 2 sentences (natural for voice interaction)
+    2. Information from "CONTEXT & FIXED INFORMATION" section are secret. The user has to ask for them specifically. 
+    NEVER voluntarily share any information from CONTEXT & FIXED INFORMATION. 
+    3. Stay in character at all times; respond as a real waiter would
+    4. If asked about something you don't know, say so naturally ("I'm not sure about that")
+    5. Use conversational language (contractions, natural phrases)
+    6. If the user asks you to repeat something, do it. 
+  IV. c) CONVERSATION GUIDELINES:
+    - Ask clarifying questions if a request is vague
+    - Be naturally conversational (no robotic responses)
+    - Show personality—make small talk feel genuine
+    - If someone asks multiple questions at once, answer one at a time (more natural)
 `;
 
 export const EXPERIMENT_PROMPT = `
@@ -180,8 +220,10 @@ export class LiveAudioSession {
   private noiseRecordingProcessor: ScriptProcessorNode | null = null;
 
   // ----- ACCUMULATED AUDIO SAMPLES (FOR SAVING) -----
-  /** Accumulates raw samples for the transcript-level (mix) recording */
-  private transcriptSamples: Float32Array[] = [];
+  /** Accumulates raw samples for the training phase transcript */
+  private trainingTranscriptSamples: Float32Array[] = [];
+  /** Accumulates raw samples for the experiment phase transcript */
+  private experimentTranscriptSamples: Float32Array[] = [];
   /** Left channel samples for the clean binaural speech recording */
   private voiceSamplesL: Float32Array[] = [];
   /** Right channel samples for the clean binaural speech recording */
@@ -313,19 +355,20 @@ export class LiveAudioSession {
 
     // RESETTING RECORDING ARRAYS
     if (!shouldPlayNoise) {
-      // Starting Phase 1: Reset everything
+      // Starting Phase 1: Reset training recording
       this.speechSumSquares = 0;
       this.speechSampleCount = 0;
       this.preGraphSpeechSumSquares = 0;
       this.preGraphSpeechSampleCount = 0;
       
-      this.transcriptSamples = [];
+      this.trainingTranscriptSamples = [];
       this.voiceSamplesL = [];
       this.voiceSamplesR = [];
       this.noiseSamplesL = [];
       this.noiseSamplesR = [];
     } else {
-      // Starting Phase 2: Clear binaural and noise samples to ensure they are synchronized for this phase
+      // Starting Phase 2: Reset experiment recording
+      this.experimentTranscriptSamples = [];
       this.voiceSamplesL = [];
       this.voiceSamplesR = [];
       this.noiseSamplesL = [];
@@ -391,11 +434,17 @@ export class LiveAudioSession {
 
       // 5. Recording Processors (WAV Export)
 
-      // Transcript (Mono Agent Voice + Mono User Mic)
+      // Transcription (Mono Agent Voice + Mono User Mic)
       this.transcriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
       this.transcriptProcessor.onaudioprocess = (e) => {
         const input = e.inputBuffer.getChannelData(0);
-        this.transcriptSamples.push(new Float32Array(input));
+        
+        if (!shouldPlayNoise) {
+          this.trainingTranscriptSamples.push(new Float32Array(input));
+        } else {
+          this.experimentTranscriptSamples.push(new Float32Array(input));
+        }
+        
         e.outputBuffer.getChannelData(0).fill(0); //mute audio at the output
       };
       this.voiceGainNode.connect(this.transcriptProcessor);
@@ -704,11 +753,15 @@ export class LiveAudioSession {
     }
   }
 
-  getRecordings(): { transcript: Blob | null; voice: Blob | null; noise: Blob | null } {
+  getRecordings(): { training: Blob | null; main: Blob | null; voice: Blob | null; noise: Blob | null } {
     const sampleRate = this.audioContext?.sampleRate || 24000;
 
-    const transcriptBlob = this.transcriptSamples.length > 0 
-      ? new Blob([this.encodeWAV(this.mergeSamples(this.transcriptSamples), sampleRate)], { type: "audio/wav" })
+    const trainingBlob = this.trainingTranscriptSamples.length > 0 
+      ? new Blob([this.encodeWAV(this.mergeSamples(this.trainingTranscriptSamples), sampleRate)], { type: "audio/wav" })
+      : null;
+
+    const mainBlob = this.experimentTranscriptSamples.length > 0 
+      ? new Blob([this.encodeWAV(this.mergeSamples(this.experimentTranscriptSamples), sampleRate)], { type: "audio/wav" })
       : null;
 
     const voiceBlob = this.voiceSamplesL.length > 0
@@ -719,18 +772,7 @@ export class LiveAudioSession {
       ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.noiseSamplesL), this.mergeSamples(this.noiseSamplesR), sampleRate)], { type: "audio/wav" })
       : null;
 
-    return { transcript: transcriptBlob, voice: voiceBlob, noise: noiseBlob };
-  }
-
-  private mergeSamples(samples: Float32Array[]): Float32Array {
-    const totalLength = samples.reduce((acc, val) => acc + val.length, 0);
-    const result = new Float32Array(totalLength);
-    let offset = 0;
-    for (const sample of samples) {
-      result.set(sample, offset);
-      offset += sample.length;
-    }
-    return result;
+    return { training: trainingBlob, main: mainBlob, voice: voiceBlob, noise: noiseBlob };
   }
 
   private encodeWAV(samples: Float32Array, sampleRate: number) {
@@ -802,5 +844,16 @@ export class LiveAudioSession {
     }
 
     return buffer;
+  }
+
+  private mergeSamples(samples: Float32Array[]): Float32Array {
+    const totalLength = samples.reduce((acc, val) => acc + val.length, 0);
+    const result = new Float32Array(totalLength);
+    let offset = 0;
+    for (const sample of samples) {
+      result.set(sample, offset);
+      offset += sample.length;
+    }
+    return result;
   }
 }
