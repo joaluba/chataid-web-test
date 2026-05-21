@@ -331,35 +331,51 @@ export default function VoiceAgent() {
         }
       };
 
-      // 2. Create ZIP and trigger download IMMEDIATELY to preserve user activation context
-      const zip = new JSZip();
-      
+      // 2. Download files individually (without zipping) to prevent browser memory issues or JSZip incompatibilities in production
+      const filesToDownload: { blob: Blob; filename: string }[] = [];
+
       // Add JSON data
-      zip.file(`experiment_data.json`, JSON.stringify(fullDataDictionary, null, 2));
+      const jsonBlob = new Blob([JSON.stringify(fullDataDictionary, null, 2)], { type: "application/json" });
+      filesToDownload.push({ blob: jsonBlob, filename: `experiment_data_${docId}.json` });
 
       // Add audio recordings if available
       try {
         const recordings = sessionRef.current?.getRecordings();
         if (recordings) {
-          if (recordings.training) zip.file(`transcript_training.wav`, recordings.training);
-          if (recordings.main) zip.file(`transcript_experiment.wav`, recordings.main);
-          if (recordings.voice) zip.file(`agent_experiment.wav`, recordings.voice);
-          if (recordings.noise) zip.file(`noise_experiment.wav`, recordings.noise);
+          if (recordings.training) {
+            filesToDownload.push({ blob: recordings.training, filename: `transcript_training_${docId}.wav` });
+          }
+          if (recordings.main) {
+            filesToDownload.push({ blob: recordings.main, filename: `transcript_experiment_${docId}.wav` });
+          }
+          if (recordings.voice) {
+            filesToDownload.push({ blob: recordings.voice, filename: `agent_experiment_${docId}.wav` });
+          }
+          if (recordings.noise) {
+            filesToDownload.push({ blob: recordings.noise, filename: `noise_experiment_${docId}.wav` });
+          }
         }
       } catch (recordingErr) {
         console.error("Failed to get recordings:", recordingErr);
       }
 
-      // Generate and download
-      const content = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(content);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `experiment_${docId}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Download each file sequentially with a small delay to prevent browser blockages
+      const triggerDownload = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      };
+
+      filesToDownload.forEach((file, index) => {
+        setTimeout(() => {
+          triggerDownload(file.blob, file.filename);
+        }, index * 300);
+      });
 
       // 3. Authenticate and Upload to Firestore in the background
       try {
