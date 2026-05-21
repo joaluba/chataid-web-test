@@ -6,7 +6,7 @@ import { db, loginAnonymously, auth } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
 
-const APP_VER_INFO = `App version: V0.1.0 (DIVIDED QUESTIONNAIRE) SNR=${LiveAudioSession.SNR_DB}`;
+const APP_VER_INFO = `App version: V0.1.1 (div.questionnaire, improved recording) SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
@@ -26,8 +26,8 @@ enum ExperimentStep {
 const QUESTIONNAIRE_STRUCTURE = [
   {
     id: "cat1",
-    title: "Category 1: TTS voice quality",
-    description: "Rate the quality of the generated voice itself, as independently as possible from the café noise or background sounds. Focus on the voice’s clarity, naturalness, pleasantness, rhythm, intonation, and speaking style, not on how difficult or realistic the acoustic scene was.",
+    title: "TTS voice quality",
+    description: "Rate the quality of the generated agent's voice.",
     questions: [
       { id: "effort", text: "Please rate the degree of effort you had to make to understand the message.", min: "1 = Impossible even with much effort", max: "7 = No effort required" },
       { id: "singleWords", text: "Were single words hard to understand?", min: "1 = All words hard to understand", max: "7 = All words easy to understand" },
@@ -48,19 +48,19 @@ const QUESTIONNAIRE_STRUCTURE = [
   },
   {
     id: "cat2",
-    title: "Category 2: Agent interaction quality",
-    description: "Rate the quality of the interaction with the voice agent, focusing on timing, turn-taking, delays, pauses, interruptions, and conversational flow. Do not rate the background noise itself, except when it directly affected how smoothly the interaction worked.",
+    title: "Agent interaction quality",
+    description: "Rate the quality of the interaction with the voice agent, focusing on timing, turn-taking, delays, pauses, interruptions, and conversational flow.",
     questions: [
       { id: "delayAcceptable", text: "The delay between my speech and the agent's reply felt acceptable.", min: "1 = Strongly disagree", max: "7 = Strongly agree" },
       { id: "freeFlowing", text: "How free-flowing did the conversation feel?", min: "1 = Not at all free-flowing", max: "7 = Completely free-flowing" },
       { id: "naturalConv", text: "How natural did the conversation feel?", min: "1 = Not at all natural", max: "7 = Completely natural" },
-      { id: "awkwardPauses", text: "How often during the conversation did you experience awkward pauses, interruptions, or talking over the agent?", min: "1 = Never", max: "7 = Very frequently" },
+      { id: "awkwardPauses", text: "How often during the conversation did you experience awkward pauses, interruptions, or talking over the agent?", min: "1 = Very frequently", max: "7 = Never" },
     ]
   },
   {
     id: "cat3",
-    title: "Category 3: Passive listening difficulty",
-    description: "Rate how difficult it was to understand the voice agent while listening in the noisy café-like acoustic scene. Here, you should take the background noise and overall listening conditions into account, focusing on how much you understood and how much effort listening required.",
+    title: "Passive listening difficulty",
+    description: "Rate how difficult it was to UNDERSTAND the agent's voice in a noisy café-like acoustic scene.",
     questions: [
       { id: "understandAmount", text: "How much of the agent's speech could you understand in this conversation?", min: "1 = Not at all", max: "7 = Everything" },
       { id: "understandEffort", text: "How much effort did it take you to understand the agent's speech?", min: "1 = No effort at all", max: "7 = Extreme effort" },
@@ -68,8 +68,8 @@ const QUESTIONNAIRE_STRUCTURE = [
   },
   {
     id: "cat4",
-    title: "Category 4: Communication difficulty",
-    description: "Rate how difficult it was to communicate (interact) with the agent in the noisy café-like acoustic scene. Take the acoustic scene into account when judging stress, repetition, smooth back-and-forth exchange, and overall communication success.",
+    title: "Communication difficulty",
+    description: "Rate how difficult it was to communicate (INTERACT) with the agent in the noisy café-like acoustic scene.",
     questions: [
       { id: "stressful", text: "How stressful was it to have this conversation?", min: "1 = Not stressful at all", max: "7 = Extremely stressful" },
       { id: "noiseDifficulty", text: "The noise made it hard to have a smooth back-and-forth exchange with the agent.", min: "1 = Strongly disagree", max: "7 = Strongly agree" },
@@ -79,7 +79,7 @@ const QUESTIONNAIRE_STRUCTURE = [
   },
   {
     id: "cat5",
-    title: "Category 5: Task ecological validity",
+    title: "Task ecological validity",
     description: "Rate how realistic and meaningful the role-play task felt as a situation you might encounter in everyday life. Focus on the task and your engagement with it, not on the voice quality or background noise.",
     questions: [
       { id: "relevance", text: "How relevant was this listening situation to your everyday life?", min: "1 = Not at all relevant", max: "7 = Extremely relevant" },
@@ -89,7 +89,7 @@ const QUESTIONNAIRE_STRUCTURE = [
   },
   {
     id: "cat6",
-    title: "Category 6: Acoustic scene ecological validity",
+    title: "Acoustic scene ecological validity",
     description: "Rate how realistic and immersive the café-like acoustic environment sounded. Focus on the background noise, the sense of being in a real café, and whether the target voice fit naturally into that environment.",
     questions: [
       { id: "realCafe", text: "The acoustic environment sounded like a real café I might find myself in.", min: "1 = Strongly disagree", max: "7 = Strongly agree" },
@@ -198,6 +198,8 @@ export default function VoiceAgent() {
   const [isCooldown, setIsCooldown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<LiveAudioSession | null>(null);
+
+
 
   // User data form state
   const [isUploading, setIsUploading] = useState(false);
@@ -345,16 +347,16 @@ export default function VoiceAgent() {
       const zip = new JSZip();
       
       // Add JSON data
-      zip.file(`${docId}_data.json`, JSON.stringify(fullDataDictionary, null, 2));
+      zip.file(`experiment_data.json`, JSON.stringify(fullDataDictionary, null, 2));
 
       // Add audio recordings if available
       try {
         const recordings = sessionRef.current?.getRecordings();
         if (recordings) {
-          if (recordings.training) zip.file(`${docId}_transcript_training.wav`, recordings.training);
-          if (recordings.main) zip.file(`${docId}_transcript_main.wav`, recordings.main);
-          if (recordings.voice) zip.file(`${docId}_voice.wav`, recordings.voice);
-          if (recordings.noise) zip.file(`${docId}_noise.wav`, recordings.noise);
+          if (recordings.training) zip.file(`transcript_training.wav`, recordings.training);
+          if (recordings.main) zip.file(`transcript_experiment.wav`, recordings.main);
+          if (recordings.voice) zip.file(`agent_experiment.wav`, recordings.voice);
+          if (recordings.noise) zip.file(`noise_experiment.wav`, recordings.noise);
         }
       } catch (recordingErr) {
         console.error("Failed to get recordings:", recordingErr);
@@ -385,6 +387,8 @@ export default function VoiceAgent() {
       sessionRef.current?.stop();
     };
   }, []);
+
+
 
   if (isConfigMissing) {
     return (
@@ -519,7 +523,6 @@ export default function VoiceAgent() {
                 <li>Please make sure you are using <strong>headphones</strong> – important.</li>
                 <li>Please read the consent statement below carefully. You can only proceed once you have given your informed consent.</li>
               </ul>
-              <p className="mt-4 font-medium text-center">Thank you and enjoy the experience!</p>
             </div>
           </div>
 
@@ -533,11 +536,13 @@ export default function VoiceAgent() {
                 onChange={(e) => setHasConsented(e.target.checked)}
                 className="mt-1 accent-black cursor-pointer w-4 h-4 shrink-0"
               />
-              <label htmlFor="consent" className="text-xs text-black font-sans leading-relaxed cursor-pointer block">
+              <label htmlFor="consent" className="text-[10px] text-gray-500 font-sans leading-normal cursor-pointer block">
                 I consent to take part in this study and understand that my spoken responses and interaction with the voice agent will be recorded to produce a transcript and analyse the dialogue, including turn-taking and response patterns. The recording will not be used to identify me, analyse my voice characteristics, or perform biometric identification. To develop and run this app, the researchers use service providers such as the Gemini Speech API for the voice agent, Vercel for website deployment, and Firebase for text data storage; these providers may have access to some information extracted from this interaction. The data will be processed securely and pseudonymised where possible. My participation is voluntary, and I may stop at any time or request withdrawal/deletion of my identifiable data by contacting Joanna Luberadzka [joanna.luberadzka@eurecat.org], unless the data have already been anonymised or included in aggregated analysis. By continuing, I confirm that I have read the study information and give consent to this recording and processing for research purposes.
               </label>
             </div>
           </div>
+
+          <p className="mt-8 text-[25px] font-medium tracking-tight text-center">Thank you and enjoy the experience!</p>
 
           <div className="pt-6 flex justify-center">
             <button 
@@ -567,7 +572,7 @@ export default function VoiceAgent() {
         <div className="w-full max-w-xl p-8 md:p-10 pt-0">
           <div className="space-y-6">
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Participant alias</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Participant alias</label>
               <input
                 type="text"
                 value={participantAlias}
@@ -577,7 +582,7 @@ export default function VoiceAgent() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Age</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Age</label>
               <input
                 type="number"
                 value={participantAge}
@@ -587,7 +592,7 @@ export default function VoiceAgent() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Gender</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Gender</label>
               <select
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
@@ -601,7 +606,7 @@ export default function VoiceAgent() {
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Native English speaker</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Native English speaker</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-base text-black font-sans cursor-pointer">
                   <input type="radio" name="nativeSpeaker" value="yes" checked={isNativeSpeaker === "yes"} onChange={(e) => setIsNativeSpeaker(e.target.value)} className="accent-black" /> Yes
@@ -612,7 +617,7 @@ export default function VoiceAgent() {
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Hearing status</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Hearing status</label>
               <select
                 value={hearingStatus}
                 onChange={(e) => setHearingStatus(e.target.value)}
@@ -625,7 +630,7 @@ export default function VoiceAgent() {
               </select>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Listening expert</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Listening expert</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-base text-black font-sans cursor-pointer">
                   <input type="radio" name="listeningExpert" value="yes" checked={isListeningExpert === "yes"} onChange={(e) => setIsListeningExpert(e.target.value)} className="accent-black" /> Yes
@@ -636,7 +641,7 @@ export default function VoiceAgent() {
               </div>
             </div>
             <div className="flex flex-col gap-2">
-              <label className="text-base text-black font-sans">Are you using headphones?</label>
+              <label className="text-xs text-gray-500 font-sans uppercase tracking-wider font-bold">Are you using headphones?</label>
               <div className="flex gap-4">
                 <label className="flex items-center gap-2 text-base text-black font-sans cursor-pointer">
                   <input type="radio" name="usingHeadphones" value="yes" checked={usingHeadphones === "yes"} onChange={(e) => setUsingHeadphones(e.target.value)} className="accent-black" /> Yes
@@ -677,7 +682,8 @@ export default function VoiceAgent() {
             <ul className="text-left max-w-md mx-auto space-y-1 inline-block list-disc pl-5 text-base text-black font-sans">
               <li>Test your microphone and headphones</li>
               <li>Adjust the loudness to the comfortable level</li>
-              <li>Practice communication role-play with the agent</li>
+              <li>Practice communication role-play with the agent (Tourist Office) </li>
+              <li>Practice answering in the user input field</li>
               <li>Pay attention to the agent’s voice <br/></li>
             </ul>
           </div>
@@ -708,17 +714,35 @@ export default function VoiceAgent() {
             {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
           </button>
           
-          {isActive && (
-            <div className="w-48 p-1 bg-white border border-black">
-              <AudioVisualizer session={sessionRef.current} />
-            </div>
-          )}
+          <div className="relative w-full aspect-[16/4] border border-black rounded-[24px] overflow-hidden bg-white group select-none">
+            <img
+              src="https://images.unsplash.com/photo-1766098556973-2208e32fad19?q=80&w=1064&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+              alt="Acoustic experiment scene"
+              className={`absolute inset-0 w-full h-full object-cover object-[center_75%] transition-all duration-300 ${
+                isActive 
+                  ? "opacity-60 grayscale-0 brightness-100" 
+                  : "opacity-35 grayscale brightness-105"
+              }`}
+              referrerPolicy="no-referrer"
+            />
+            {isActive ? (
+              <div className="absolute inset-0 bg-white/10 flex flex-col items-center justify-center p-4 z-10">
+                <div className="w-48 p-1 bg-white border border-black">
+                  <AudioVisualizer session={sessionRef.current} />
+                </div>
+              </div>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-xs text-gray-400 font-mono uppercase tracking-widest bg-gray-50/20">
+                Audio scene off
+              </div>
+            )}
+          </div>
 
           <div className="w-full p-10 space-y-8 bg-[#FFFDC0] rounded-[40px] border border-black shadow-sm">
             <div className="space-y-2 border-b border-black pb-4">
               <div className="grid grid-cols-2 gap-8 font-sans text-xs text-gray-500 uppercase tracking-wider">
-                <div>Information to collect:</div>
-                <div>What I understood:</div>
+                <div className="font-bold">Information to collect:</div>
+                <div className="font-bold">What I understood:</div>
               </div>
             </div>
             <div className="space-y-6 text-black">
@@ -794,7 +818,7 @@ export default function VoiceAgent() {
           {cats.map(category => (
             <section key={category.id} className="space-y-10 group">
               <div className="space-y-4">
-                <h2 className="text-base font-bold border-b border-black pb-2 inline-block tracking-tight">{category.title}</h2>
+                <h2 className="text-base font-bold text-gray-500 border-b border-black pb-2 inline-block tracking-tight">{category.title}</h2>
                 <p className="text-base text-black font-sans italic leading-relaxed">{category.description}</p>
               </div>
               <div className="space-y-16">
@@ -802,7 +826,7 @@ export default function VoiceAgent() {
                   <div key={q.id} className="space-y-6">
                     <p className="text-base text-black font-sans leading-tight">{q.text}</p>
                     <div className="flex justify-between items-center bg-gray-50 p-5 rounded-2xl border border-dotted border-gray-300">
-                      <span className="text-xs text-black font-sans w-32 text-center leading-tight">{q.min}</span>
+                      <span className="text-sm text-black font-sans w-32 text-center leading-tight">{q.min}</span>
                       <div className="flex gap-2">
                          {[1, 2, 3, 4, 5, 6, 7].map(num => (
                           <button
@@ -814,7 +838,7 @@ export default function VoiceAgent() {
                           </button>
                         ))}
                       </div>
-                      <span className="text-xs text-black font-sans w-32 text-center leading-tight">{q.max}</span>
+                      <span className="text-sm text-black font-sans w-32 text-center leading-tight">{q.max}</span>
                     </div>
                   </div>
                 ))}
@@ -844,8 +868,9 @@ export default function VoiceAgent() {
           <div className="space-y-4">
             <p className="text-base text-black font-sans">In this phase you should:</p>
             <ul className="text-left max-w-md mx-auto space-y-1 inline-block list-disc pl-5 text-base text-black font-sans">
+              <li>Adjust the loudness to comfortable level</li>
               <li>Engage in a role-play task with the agent (café scenario)</li>
-              <li>Collect information requested on the screen</li>
+              <li>Input information requested on the screen in the user input field</li>
               <li>Pay attention to the acoustic scene</li>
             </ul>
           </div>
@@ -868,20 +893,42 @@ export default function VoiceAgent() {
         <h1 className="text-[25px] font-medium tracking-tight">3/4 Experiment</h1>
         
         <div className="flex flex-col items-center gap-12 w-full max-w-xl">
-          <button onClick={toggleSession} className="px-12 py-4 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-all text-black">
+          <button 
+            onClick={toggleSession} 
+            disabled={isConnecting || isCooldown}
+            className="px-12 py-4 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-all text-black"
+          >
             {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
           </button>
           
-          {isActive && (
-            <div className="w-48 p-1 bg-white border border-black">
-              <AudioVisualizer session={sessionRef.current} />
-            </div>
-          )}
+          <div className="relative w-full aspect-[16/4] border border-black rounded-[24px] overflow-hidden bg-white group select-none">
+            <img
+              src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=900&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8Y2FmZXxlbnwwfHwwfHx8MA%3D%3D"
+              alt="Acoustic experiment scene"
+              className={`absolute inset-0 w-full h-full object-cover object-[center_75%] transition-all duration-300 ${
+                isActive 
+                  ? "opacity-60 grayscale-0 brightness-100" 
+                  : "opacity-35 grayscale brightness-105"
+              }`}
+              referrerPolicy="no-referrer"
+            />
+            {isActive ? (
+              <div className="absolute inset-0 bg-white/10 flex flex-col items-center justify-center p-4 z-10">
+                <div className="w-48 p-1 bg-white border border-black">
+                  <AudioVisualizer session={sessionRef.current} />
+                </div>
+              </div>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-xs text-gray-400 font-mono uppercase tracking-widest bg-gray-50/20">
+                Audio scene off
+              </div>
+            )}
+          </div>
 
           <div className="w-full p-10 space-y-8 bg-[#FFFDC0] rounded-[40px] border border-black shadow-sm">
             <div className="grid grid-cols-2 gap-8 font-sans text-xs text-gray-500 uppercase tracking-wider border-b border-black pb-4">
-              <div>Information to collect:</div>
-              <div>What I understood:</div>
+              <div className="font-bold">Information to collect:</div>
+              <div className="font-bold">What I understood:</div>
             </div>
             <div className="space-y-6 text-black">
               {tasks.map(task => (
@@ -956,7 +1003,7 @@ export default function VoiceAgent() {
           {cats.map(category => (
             <section key={category.id} className="space-y-10 group">
               <div className="space-y-4">
-                <h2 className="text-base font-bold border-b border-black pb-2 inline-block tracking-tight">{category.title}</h2>
+                <h2 className="text-base font-bold text-gray-500 border-b border-black pb-2 inline-block tracking-tight">{category.title}</h2>
                 <p className="text-base text-black font-sans italic leading-relaxed">{category.description}</p>
               </div>
               <div className="space-y-16">
@@ -964,7 +1011,7 @@ export default function VoiceAgent() {
                   <div key={q.id} className="space-y-6">
                     <p className="text-base text-black font-sans leading-tight">{q.text}</p>
                     <div className="flex justify-between items-center bg-gray-50 p-5 rounded-2xl border border-dotted border-gray-300">
-                      <span className="text-xs text-black font-sans w-32 text-center leading-tight">{q.min}</span>
+                      <span className="text-sm text-black font-sans w-32 text-center leading-tight">{q.min}</span>
                       <div className="flex gap-2">
                         {[1, 2, 3, 4, 5, 6, 7].map(num => (
                           <button
@@ -976,7 +1023,7 @@ export default function VoiceAgent() {
                           </button>
                         ))}
                       </div>
-                      <span className="text-xs text-black font-sans w-32 text-center leading-tight">{q.max}</span>
+                      <span className="text-sm text-black font-sans w-32 text-center leading-tight">{q.max}</span>
                     </div>
                   </div>
                 ))}

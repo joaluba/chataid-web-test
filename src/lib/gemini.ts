@@ -24,7 +24,7 @@ II. INSTRUCTIONS:
   As is often the case in the normal life, you will have to collect specific information from me and note them down. 
   Now lets practice! The practice scenario is a conversation with a attendant in a tourist office. 
   I will be playing the role of the attendant, and you are a tourist that wants to know specific things. 
-  Now take a moment to see the example of a user interface (the yellow box). 
+  Now take a moment to see the example of a user input field (the yellow box). 
   On the left of that yellow box you can see a list of all the information you need to collect 
   and on the right there are empty fields for you to fill in. Let me know when you are ready to continue."
 
@@ -113,48 +113,49 @@ CONVERSATION GUIDELINES:
 
 // --- SIGNAL FLOW GRAPH SETUP ---
 /* 
+  * --- UNIFIED ASSET INITIALIZATION ---
+  * To ensure perfect synchronization and eliminate late-loading audio lag, both
+  * critical assets (CUSTOM_HRIR_URL and NOISE_FILE_URL) are pre-loaded and decoded
+  * in parallel (Promise.all) at the very start of the session, prior to allocating
+  * any recording buffers or starting the Gemini Multimodal stream.
+  * 
   * --- SIGNAL FLOW: AGENT VOICE ---
   * [AudioBufferSource] (Gemini Speech)
   *    |
   *    +--> [analyser] (Visualizer Probe)
   *    |
   *    v
-  * [voiceGainNode] (Unity Gain Primary Input)
+  * [initialVoiceGainNode] (Unity Gain Primary Input)
   *    |
-  *    +----(Dry Path)-----> [dryGainNode] (gain mute if phase=2) ----> [Destination]
+  *    +----(Dry Path)-----> [dryGainNode] (gain mute if phase=2) --------------------------> [Destination]
   *    |
-  *    +----(Wet Path)-----> [convolver] (HRTF)
+  *    +----(Wet Path)-----> [convolver] (using pre-loaded HRIR Buffer)
   *    |                        |
   *    |                        v
-  *    |                 [speechRMSProcessor]
+  *    |                 [speechRMSProcessor] --(Binaural)---------------------------------> [Destination] (samples mute if phase=1)
   *    |                        |
-  *    |                        +-----> [Destination] (Binaural) (samples mute if phase=1)
-  *    |                        |
-  *    |                        v
-  *    |                 [voiceRecordingProcessor] ----> [Destination] (samples mute always)
-  *    |                        (Saves Stereo Samples)
-  *    |
-  *    +----(Recording)----> [transcriptProcessor] --------------> [Destination] (samples mute always)
-  *                               (Saves Mono Mixed Samples)
-  *
-  * --- SIGNAL FLOW: BACKGROUND NOISE ---
-  * [AudioBufferSource] (Noise File)
-  *    |
-  *    v
-  * [noiseGainNode] (Gain adjusted for SNR) (gain mute if phase=1)
-  *    |
-  *    +----(Playback)------------------------------------------> [Destination]
-  *    |
-  *    +----(Recording)----> [noiseRecordingProcessor] ----------> [Destination] (samples mute always)
-  *                               (Saves Stereo Samples)
-  *
-  * --- SIGNAL FLOW: USER MICROPHONE ---
-  * [MediaStreamSource] (Microphone)
-  *    |
-  *    +----(Transmission)--> [processor] (PCM -> Gemini) ------> [Destination] (samples mute always)
-  *    |
-  *    +----(Recording)-----> [transcriptProcessor] ------------> [Destination] (samples mute always)
-  *                               (Saves Mono Mixed Samples)
+  *    |                        v (split stereo)
+  *    |                 [wetVoiceSplitter] (Ch 0, 1) -.
+  *    |                                               |
+  *    +----(Dry Recording Routing) (Ch 4) ------------+-----> [uniRecChannelMerger] (6 Channels)
+  *                                                    |               |
+  * --- SIGNAL FLOW: BACKGROUND NOISE ---              |               v
+  * [AudioBufferSource] (Noise Buffer)                 |      [unifiedRecProcessor] -------> [Destination] (samples mute always; keep-alive)
+  *    |                                               |               |
+  *    v                                               |               |
+  * [noiseGainNode] (Gain adjusted for SNR)            |        (Saves 6 Channels to Arrays)
+  *    |            (gain mute if phase=1)             |        - Ch 0: Wet Agent Voice (L)
+  *    +----(Playback)-----------------> [Destination] |        - Ch 1: Wet Agent Voice (R)
+  *    |                                               |        - Ch 2: Noise Path (L) (empty if phase=1)
+  *    v (split stereo)                                |        - Ch 3: Noise Path (R) (empty if phase=1)
+  * [noiseSplitter] (Ch 2, 3) ------------------------+        - Ch 4: Dry Agent Voice (Mono)
+  *                                                    |        - Ch 5: Microphone Path (Mono)
+  *  --- SIGNAL FLOW: USER MICROPHONE ---              |
+  * [MediaStreamSource] (Microphone)                   |
+  *    |                                               |
+  *    +----(Transmission)--> [processor] (to Gemini)  |
+  *    |                                               |
+  *    +----(Mic Recording Routing) (Ch 5) ------------'
   */
 
 export class LiveAudioSession {
@@ -164,6 +165,8 @@ export class LiveAudioSession {
   private static readonly SIGNAL_VOLUME = 0.8;
   private static readonly NOISE_FILE_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776700340/cafe_noise_bin_pbsmfe.mp3";
   private static readonly CUSTOM_HRIR_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776699826/cafe_rir_bin_pnaczh.wav"; 
+
+
 
   // ----- GEMINI VOICE API CORE -----
   /** Instance of the Google Generative AI client */
@@ -178,6 +181,8 @@ export class LiveAudioSession {
   private audioContext: AudioContext | null = null;   
   /** Stores the decoded audio data of the HRIR/Convolution file */
   private hrirBuffer: AudioBuffer | null = null;
+  /** Stores the decoded audio data of the noise file */
+  private noiseBuffer: AudioBuffer | null = null;
   /** Custom audio destination, used if routing to an external stream is required */
   private recordingDestination: MediaStreamAudioDestinationNode | null = null;
 
@@ -201,37 +206,39 @@ export class LiveAudioSession {
   /** Applies spatial/Room Impulse Response (RIR) effects to the speech signal */
   private convolver: ConvolverNode | null = null;
   /** Controls volume of the spatialized (processed) speech */
-  private voiceGainNode: GainNode | null = null;
+  private initialVoiceGainNode: GainNode | null = null;
   /** Controls volume of the unprocessed (dry) speech signal */
   private dryGainNode: GainNode | null = null;
   /** Node for capturing frequency/time-domain data for visualizer meters */
   private analyser: AnalyserNode | null = null;
   /** Source node responsible for playing the background noise track */
   private noiseSource: AudioBufferSourceNode | null = null;
+  /** Gain node for background noise */
+  private noiseGainNode: GainNode | null = null;
+
+  // ----- UNIFIED SCENE RECORDER -----
+  private uniRecChannelMerger: ChannelMergerNode | null = null;
+  private unifiedRecProcessor: ScriptProcessorNode | null = null;
+
+  // Phase 1 (Training) Unified Rec arrays
+  private trainingUniCh0: Float32Array[] = [];
+  private trainingUniCh1: Float32Array[] = [];
+  private trainingUniCh2: Float32Array[] = [];
+  private trainingUniCh3: Float32Array[] = [];
+  private trainingUniCh4: Float32Array[] = [];
+  private trainingUniCh5: Float32Array[] = [];
+
+  // Phase 2 (Experiment) Unified Rec arrays
+  private experimentUniCh0: Float32Array[] = [];
+  private experimentUniCh1: Float32Array[] = [];
+  private experimentUniCh2: Float32Array[] = [];
+  private experimentUniCh3: Float32Array[] = [];
+  private experimentUniCh4: Float32Array[] = [];
+  private experimentUniCh5: Float32Array[] = [];
 
   // ----- RECORDING & WAV EXPORT LOGIC -----
   /** Processor node dedicated to measuring the real-time energy (RMS) of speech */
   private speechRMSProcessor: ScriptProcessorNode | null = null;
-  /** Processor node capturing the mix for transcript validation */
-  private transcriptProcessor: ScriptProcessorNode | null = null;
-  /** Processor node capturing binaural speech for export to WAV */
-  private voiceRecordingProcessor: ScriptProcessorNode | null = null;
-  /** Processor node capturing the background noise component for export to WAV */
-  private noiseRecordingProcessor: ScriptProcessorNode | null = null;
-
-  // ----- ACCUMULATED AUDIO SAMPLES (FOR SAVING) -----
-  /** Accumulates raw samples for the training phase transcript */
-  private trainingTranscriptSamples: Float32Array[] = [];
-  /** Accumulates raw samples for the experiment phase transcript */
-  private experimentTranscriptSamples: Float32Array[] = [];
-  /** Left channel samples for the clean binaural speech recording */
-  private voiceSamplesL: Float32Array[] = [];
-  /** Right channel samples for the clean binaural speech recording */
-  private voiceSamplesR: Float32Array[] = [];
-  /** Left channel samples for the background noise component recording */
-  private noiseSamplesL: Float32Array[] = [];
-  /** Right channel samples for the background noise component recording */
-  private noiseSamplesR: Float32Array[] = [];
 
   // ----- MEASUREMENT STATISTICS & SNR LOGIC -----
   /** Accumulates the sum of squared amplitudes for energy calculation */
@@ -278,62 +285,6 @@ export class LiveAudioSession {
   }
 
 
- // --------------- FUNCTION TO START THE NOISE SOURCE ------------
- // takes the measured rms of speech at the input and sets noise level according to a chosen SNR
-  private async startNoise(speechRMS: number, audible: boolean) {
-    if (!this.audioContext) return; 
-    
-    let buffer: AudioBuffer;
-    
-    try {
-      buffer = await this.loadAudioFromFile(this.audioContext, LiveAudioSession.NOISE_FILE_URL);
-    } catch (err) {
-      console.error("Failed to load noise buffer:", err);
-      return; 
-    }
-
-    this.noiseSource = this.audioContext.createBufferSource();
-    this.noiseSource.buffer = buffer;
-    this.noiseSource.loop = true;
-
-    const noiseRMS = this.computeRMS(buffer);
-    const targetGain = speechRMS / (noiseRMS * Math.pow(10, LiveAudioSession.SNR_DB / 20));
-    
-    const noiseGainNode = this.audioContext.createGain();
-    // gain mute if phase=1 (audible=false), otherwise use calibrated SNR gain
-    noiseGainNode.gain.value = audible ? targetGain : 0; 
-
-    // Record noise (stereo)
-    this.noiseRecordingProcessor = this.audioContext.createScriptProcessor(4096, 2, 2);
-    this.noiseRecordingProcessor.onaudioprocess = (e) => {
-      const left = e.inputBuffer.getChannelData(0);
-      const right = e.inputBuffer.getChannelData(1);
-      this.noiseSamplesL.push(new Float32Array(left));
-      this.noiseSamplesR.push(new Float32Array(right));
-      
-      e.outputBuffer.getChannelData(0).fill(0); // samples mute
-      e.outputBuffer.getChannelData(1).fill(0); // samples mute
-    };
-
-    // Connect noise source to audio output for the user
-    this.noiseSource.connect(noiseGainNode);
-    noiseGainNode.connect(this.audioContext.destination);
-
-    /** This is a "keep-alive" connection: ScriptProcessorNode often stops working 
-     * if it isn't connected to an active output. However, since the code inside
-     * the processor uses .fill(0) to silence its output, the line below doesnt produce 
-     * any sound.*/ 
-    // file -> noise source -> noiseGainNode (gain mute if phase=1) -> playback
-    //                                         |
-    //                                         +-> recording -> destination (samples mute)
-
-    noiseGainNode.connect(this.noiseRecordingProcessor);
-    this.noiseRecordingProcessor.connect(this.audioContext.destination);
-
-    this.noiseSource.start();
-
-  }
-
 
  // ---------------- MAIN ENTRY POINT FOR AI AUDIO SESSION ------------
   async start(params: {
@@ -353,47 +304,59 @@ export class LiveAudioSession {
         await this.audioContext.resume();
       }
 
+      // Pre-load all critical audio assets in parallel upfront before any recording nodes start.
+      // This eliminates the async delay when starting recorders, keeping all audio tracks perfectly aligned.
+      const loadHrir = !this.hrirBuffer 
+        ? this.loadAudioFromFile(this.audioContext, LiveAudioSession.CUSTOM_HRIR_URL).then(buf => { this.hrirBuffer = buf; }) 
+        : Promise.resolve();
+      const loadNoise = !this.noiseBuffer 
+        ? this.loadAudioFromFile(this.audioContext, LiveAudioSession.NOISE_FILE_URL).then(buf => { this.noiseBuffer = buf; }) 
+        : Promise.resolve();
+      await Promise.all([loadHrir, loadNoise]);
+
     // RESETTING RECORDING ARRAYS
     if (!shouldPlayNoise) {
       // Starting Phase 1: Reset training recording
-      this.speechSumSquares = 0;
+
+      // A little quirk in the logic: during training we measure RMS of the muted wet path 
+      this.speechSumSquares = 0;  
       this.speechSampleCount = 0;
       this.preGraphSpeechSumSquares = 0;
       this.preGraphSpeechSampleCount = 0;
-      
-      this.trainingTranscriptSamples = [];
-      this.voiceSamplesL = [];
-      this.voiceSamplesR = [];
-      this.noiseSamplesL = [];
-      this.noiseSamplesR = [];
+
+      this.trainingUniCh0 = [];
+      this.trainingUniCh1 = [];
+      this.trainingUniCh2 = [];
+      this.trainingUniCh3 = [];
+      this.trainingUniCh4 = [];
+      this.trainingUniCh5 = [];
     } else {
       // Starting Phase 2: Reset experiment recording
-      this.experimentTranscriptSamples = [];
-      this.voiceSamplesL = [];
-      this.voiceSamplesR = [];
-      this.noiseSamplesL = [];
-      this.noiseSamplesR = [];
+      this.experimentUniCh0 = [];
+      this.experimentUniCh1 = [];
+      this.experimentUniCh2 = [];
+      this.experimentUniCh3 = [];
+      this.experimentUniCh4 = [];
+      this.experimentUniCh5 = [];
     }
       
       // 1. Primary Gain Node (Unity gain to avoid clipping)
-      this.voiceGainNode = this.audioContext.createGain();
-      this.voiceGainNode.gain.value = LiveAudioSession.SIGNAL_VOLUME;
+      this.initialVoiceGainNode = this.audioContext.createGain();
+      this.initialVoiceGainNode.gain.value = LiveAudioSession.SIGNAL_VOLUME;
 
       // 2. Dry Path Setup (Passthrough for Phase 1 or debugging)
       this.dryGainNode = this.audioContext.createGain();
       this.dryGainNode.gain.value = shouldPlayNoise ? 0 : 1; // gain mute if phase=2
-      this.voiceGainNode.connect(this.dryGainNode);
+      this.initialVoiceGainNode.connect(this.dryGainNode);
       this.dryGainNode.connect(this.audioContext.destination);
 
       // 3. Wet Path (Spatial/HRTF processing via Convolver)
       this.convolver = this.audioContext.createConvolver();
-      if (!this.hrirBuffer) {
-        this.hrirBuffer = await this.loadAudioFromFile(this.audioContext, LiveAudioSession.CUSTOM_HRIR_URL);
-      }
       this.convolver.buffer = this.hrirBuffer;
-      this.voiceGainNode.connect(this.convolver);
+      this.initialVoiceGainNode.connect(this.convolver);
 
       // 4. RMS Calculation & Wet Playback Control
+      
       this.speechRMSProcessor = this.audioContext.createScriptProcessor(4096, 2, 2);
       this.speechRMSProcessor.onaudioprocess = (e) => {
         let sumSq = 0;
@@ -432,39 +395,56 @@ export class LiveAudioSession {
       this.convolver.connect(this.speechRMSProcessor);
       this.speechRMSProcessor.connect(this.audioContext.destination);
 
-      // 5. Recording Processors (WAV Export)
+      // ----- UNIFIED SCENE RECORDER -----
+      // 1. Create a channel merger node called "UniRecChannelMerger" with 6 channels.
+      this.uniRecChannelMerger = this.audioContext.createChannelMerger(6);
 
-      // Transcription (Mono Agent Voice + Mono User Mic)
-      this.transcriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
-      this.transcriptProcessor.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        
+      // 3. Create AudioRecorder Processor Node with 6 channels called UnifiedRecProcessor
+      this.unifiedRecProcessor = this.audioContext.createScriptProcessor(4096, 6, 6);
+      this.unifiedRecProcessor.onaudioprocess = (e) => {
+        const ch0 = e.inputBuffer.getChannelData(0);
+        const ch1 = e.inputBuffer.getChannelData(1);
+        const ch2 = e.inputBuffer.getChannelData(2);
+        const ch3 = e.inputBuffer.getChannelData(3);
+        const ch4 = e.inputBuffer.getChannelData(4);
+        const ch5 = e.inputBuffer.getChannelData(5);
+
         if (!shouldPlayNoise) {
-          this.trainingTranscriptSamples.push(new Float32Array(input));
+          this.trainingUniCh0.push(new Float32Array(ch0));
+          this.trainingUniCh1.push(new Float32Array(ch1));
+          this.trainingUniCh2.push(new Float32Array(ch2));
+          this.trainingUniCh3.push(new Float32Array(ch3));
+          this.trainingUniCh4.push(new Float32Array(ch4));
+          this.trainingUniCh5.push(new Float32Array(ch5));
         } else {
-          this.experimentTranscriptSamples.push(new Float32Array(input));
+          this.experimentUniCh0.push(new Float32Array(ch0));
+          this.experimentUniCh1.push(new Float32Array(ch1));
+          this.experimentUniCh2.push(new Float32Array(ch2));
+          this.experimentUniCh3.push(new Float32Array(ch3));
+          this.experimentUniCh4.push(new Float32Array(ch4));
+          this.experimentUniCh5.push(new Float32Array(ch5));
         }
-        
-        e.outputBuffer.getChannelData(0).fill(0); //mute audio at the output
-      };
-      this.voiceGainNode.connect(this.transcriptProcessor);
-      this.transcriptProcessor.connect(this.audioContext.destination);
 
-      // Voice (Stereo Binaural post-HRTF)
-      this.voiceRecordingProcessor = this.audioContext.createScriptProcessor(4096, 2, 2);
-      this.voiceRecordingProcessor.onaudioprocess = (e) => {
-        const left = e.inputBuffer.getChannelData(0);
-        const right = e.inputBuffer.getChannelData(1);
-        this.voiceSamplesL.push(new Float32Array(left));
-        this.voiceSamplesR.push(new Float32Array(right));
-        e.outputBuffer.getChannelData(0).fill(0);
-        e.outputBuffer.getChannelData(1).fill(0);
+        // Keep-alive output
+        for (let ch = 0; ch < 6; ch++) {
+          e.outputBuffer.getChannelData(ch).fill(0);
+        }
       };
-      // because speech RMS processor is muted in phase 1, the voice recording will be empty in phase 1
-      this.speechRMSProcessor.connect(this.voiceRecordingProcessor);
 
-      this.voiceRecordingProcessor.connect(this.audioContext.destination);
- 
+      // 4. Route UnifiedRecChannelMerger to UnifiedRecProcessor
+      this.uniRecChannelMerger.connect(this.unifiedRecProcessor);
+      this.unifiedRecProcessor.connect(this.audioContext.destination);
+
+      // 2. Route signals:
+      // 2.1) stereo wet agent voice path (spatialized) into channel 0, 1 of the UniRecChannelMerger
+      const wetVoiceSplitter = this.audioContext.createChannelSplitter(2);
+      this.speechRMSProcessor.connect(wetVoiceSplitter);
+      wetVoiceSplitter.connect(this.uniRecChannelMerger, 0, 0);
+      wetVoiceSplitter.connect(this.uniRecChannelMerger, 1, 1);
+
+      // 2.3) Route mono dry agent voice path into channel 4 of the UniRecChannelMerger
+      this.initialVoiceGainNode.connect(this.uniRecChannelMerger, 0, 4);
+
       // 6. Visualizer Probe
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
@@ -475,7 +455,33 @@ export class LiveAudioSession {
       if (shouldPlayNoise && this.speechSampleCount > 0) {
         this.measuredSpeechRMS = Math.sqrt(this.speechSumSquares / this.speechSampleCount);
       }
-      this.startNoise(this.measuredSpeechRMS, shouldPlayNoise);
+      
+      if (this.audioContext && this.noiseBuffer) {
+        this.noiseSource = this.audioContext.createBufferSource();
+        this.noiseSource.buffer = this.noiseBuffer;
+        this.noiseSource.loop = true;
+
+        const noiseRMS = this.computeRMS(this.noiseBuffer);
+        const targetGain = this.measuredSpeechRMS / (noiseRMS * Math.pow(10, LiveAudioSession.SNR_DB / 20));
+        
+        this.noiseGainNode = this.audioContext.createGain();
+        // gain mute if phase=1 (audible=false), otherwise use calibrated SNR gain
+        this.noiseGainNode.gain.value = shouldPlayNoise ? targetGain : 0; 
+
+        // 2.2) Route stereo noise path (after gain) into channel 2, 3 of the UniRecChannelMerger
+        const noiseSplitter = this.audioContext.createChannelSplitter(2);
+        this.noiseGainNode.connect(noiseSplitter);
+        if (this.uniRecChannelMerger) {
+          noiseSplitter.connect(this.uniRecChannelMerger, 0, 2);
+          noiseSplitter.connect(this.uniRecChannelMerger, 1, 3);
+        }
+
+        // Connect noise source to audio output for the user
+        this.noiseSource.connect(this.noiseGainNode);
+        this.noiseGainNode.connect(this.audioContext.destination);
+
+        this.noiseSource.start();
+      }
  
       this.sessionPromise = this.ai.live.connect({
         model: "gemini-3.1-flash-live-preview",
@@ -578,10 +584,12 @@ export class LiveAudioSession {
     this.source.connect(this.processor);
     this.processor.connect(this.audioContext.destination);
 
-    // Record participant's voice into the transcript
-    if (this.transcriptProcessor) {
-      this.source.connect(this.transcriptProcessor);
+    // 2.4) Route mono microphone path into channel 5 of the UnifiedRecChannelMerger
+    if (this.uniRecChannelMerger) {
+      this.source.connect(this.uniRecChannelMerger, 0, 5);
     }
+
+
 
   }
 
@@ -616,8 +624,8 @@ export class LiveAudioSession {
     }
 
     // Always connect to a stable junction to avoid graph re-initialization per buffer
-    if (this.voiceGainNode) {
-      source.connect(this.voiceGainNode);
+    if (this.initialVoiceGainNode) {
+      source.connect(this.initialVoiceGainNode);
     }
 
     const startTime = Math.max(this.audioContext.currentTime, this.nextStartTime);
@@ -669,20 +677,17 @@ export class LiveAudioSession {
   }
 
   stop() {
-    if (this.transcriptProcessor) {
-      this.transcriptProcessor.disconnect();
-      this.transcriptProcessor = null;
+    if (this.unifiedRecProcessor) {
+      this.unifiedRecProcessor.disconnect();
+      this.unifiedRecProcessor = null;
     }
 
-    if (this.voiceRecordingProcessor) {
-      this.voiceRecordingProcessor.disconnect();
-      this.voiceRecordingProcessor = null;
+    if (this.uniRecChannelMerger) {
+      this.uniRecChannelMerger.disconnect();
+      this.uniRecChannelMerger = null;
     }
 
-    if (this.noiseRecordingProcessor) {
-      this.noiseRecordingProcessor.disconnect();
-      this.noiseRecordingProcessor = null;
-    }
+
 
     if (this.speechRMSProcessor) {
       this.speechRMSProcessor.disconnect();
@@ -730,9 +735,9 @@ export class LiveAudioSession {
       this.dryGainNode = null;
     }
 
-    if (this.voiceGainNode) {
-      this.voiceGainNode.disconnect();
-      this.voiceGainNode = null;
+    if (this.initialVoiceGainNode) {
+      this.initialVoiceGainNode.disconnect();
+      this.initialVoiceGainNode = null;
     }
 
     if (this.audioContext) {
@@ -753,26 +758,49 @@ export class LiveAudioSession {
     }
   }
 
-  getRecordings(): { training: Blob | null; main: Blob | null; voice: Blob | null; noise: Blob | null } {
+  getRecordings(): { 
+    training: Blob | null; 
+    main: Blob | null; 
+    voice: Blob | null; 
+    noise: Blob | null;
+  } {
     const sampleRate = this.audioContext?.sampleRate || 24000;
 
-    const trainingBlob = this.trainingTranscriptSamples.length > 0 
-      ? new Blob([this.encodeWAV(this.mergeSamples(this.trainingTranscriptSamples), sampleRate)], { type: "audio/wav" })
+    const trainingBlob = this.trainingUniCh4.length > 0
+      ? new Blob([this.encodeWAV(this.mixMonoSamples(this.trainingUniCh4, this.trainingUniCh5), sampleRate)], { type: "audio/wav" })
       : null;
 
-    const mainBlob = this.experimentTranscriptSamples.length > 0 
-      ? new Blob([this.encodeWAV(this.mergeSamples(this.experimentTranscriptSamples), sampleRate)], { type: "audio/wav" })
+    const mainBlob = this.experimentUniCh4.length > 0
+      ? new Blob([this.encodeWAV(this.mixMonoSamples(this.experimentUniCh4, this.experimentUniCh5), sampleRate)], { type: "audio/wav" })
       : null;
 
-    const voiceBlob = this.voiceSamplesL.length > 0
-      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.voiceSamplesL), this.mergeSamples(this.voiceSamplesR), sampleRate)], { type: "audio/wav" })
+    const voiceBlob = this.experimentUniCh0.length > 0
+      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.experimentUniCh0), this.mergeSamples(this.experimentUniCh1), sampleRate)], { type: "audio/wav" })
       : null;
 
-    const noiseBlob = this.noiseSamplesL.length > 0
-      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.noiseSamplesL), this.mergeSamples(this.noiseSamplesR), sampleRate)], { type: "audio/wav" })
+    const noiseBlob = this.experimentUniCh2.length > 0
+      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.experimentUniCh2), this.mergeSamples(this.experimentUniCh3), sampleRate)], { type: "audio/wav" })
       : null;
 
-    return { training: trainingBlob, main: mainBlob, voice: voiceBlob, noise: noiseBlob };
+    return { 
+      training: trainingBlob, 
+      main: mainBlob, 
+      voice: voiceBlob, 
+      noise: noiseBlob
+    };
+  }
+
+  private mixMonoSamples(samplesA: Float32Array[], samplesB: Float32Array[]): Float32Array {
+    const mergedA = this.mergeSamples(samplesA);
+    const mergedB = this.mergeSamples(samplesB);
+    const length = Math.max(mergedA.length, mergedB.length);
+    const result = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      const a = i < mergedA.length ? mergedA[i] : 0;
+      const b = i < mergedB.length ? mergedB[i] : 0;
+      result[i] = a + b;
+    }
+    return result;
   }
 
   private encodeWAV(samples: Float32Array, sampleRate: number) {
