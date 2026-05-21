@@ -308,8 +308,11 @@ export default function VoiceAgent() {
     setError(null);
 
     try {
+      const docId = `${participantAlias}_${new Date().getTime()}`;
+
       // 1. Prepare Full Data Dictionary
       const fullDataDictionary = {
+        exportId: docId,
         participant: {
           alias: participantAlias,
           age: participantAge,
@@ -328,22 +331,7 @@ export default function VoiceAgent() {
         }
       };
 
-      // 2. Auth for security
-      await loginAnonymously();
-
-      // 3. Upload to Firestore (Text Data)
-      let docId = `${participantAlias}_${new Date().getTime()}`;
-      try {
-        const docRef = await addDoc(collection(db, "results"), {
-          ...fullDataDictionary,
-          serverTimestamp: serverTimestamp()
-        });
-        docId = docRef.id;
-      } catch (firestoreErr) {
-        console.error("Firestore upload failed:", firestoreErr);
-      }
-
-      // 4. Create ZIP and trigger download
+      // 2. Create ZIP and trigger download IMMEDIATELY to preserve user activation context
       const zip = new JSZip();
       
       // Add JSON data
@@ -372,6 +360,19 @@ export default function VoiceAgent() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      // 3. Authenticate and Upload to Firestore in the background
+      try {
+        if (db) {
+          await loginAnonymously();
+          await addDoc(collection(db, "results"), {
+            ...fullDataDictionary,
+            serverTimestamp: serverTimestamp()
+          });
+        }
+      } catch (firestoreErr) {
+        console.error("Firestore upload failed:", firestoreErr);
+      }
       
       nextStep();
     } catch (err: any) {
