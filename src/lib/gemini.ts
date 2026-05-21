@@ -767,19 +767,19 @@ export class LiveAudioSession {
     const sampleRate = this.audioContext?.sampleRate || 24000;
 
     const trainingBlob = this.trainingUniCh4.length > 0
-      ? new Blob([this.encodeWAV(this.mixMonoSamples(this.trainingUniCh4, this.trainingUniCh5), sampleRate)], { type: "audio/wav" })
+      ? new Blob([this.encodeMonoWAVDirect(this.trainingUniCh4, this.trainingUniCh5, sampleRate)], { type: "audio/wav" })
       : null;
 
     const mainBlob = this.experimentUniCh4.length > 0
-      ? new Blob([this.encodeWAV(this.mixMonoSamples(this.experimentUniCh4, this.experimentUniCh5), sampleRate)], { type: "audio/wav" })
+      ? new Blob([this.encodeMonoWAVDirect(this.experimentUniCh4, this.experimentUniCh5, sampleRate)], { type: "audio/wav" })
       : null;
 
     const voiceBlob = this.experimentUniCh0.length > 0
-      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.experimentUniCh0), this.mergeSamples(this.experimentUniCh1), sampleRate)], { type: "audio/wav" })
+      ? new Blob([this.encodeStereoWAVDirect(this.experimentUniCh0, this.experimentUniCh1, sampleRate)], { type: "audio/wav" })
       : null;
 
     const noiseBlob = this.experimentUniCh2.length > 0
-      ? new Blob([this.encodeStereoWAV(this.mergeSamples(this.experimentUniCh2), this.mergeSamples(this.experimentUniCh3), sampleRate)], { type: "audio/wav" })
+      ? new Blob([this.encodeStereoWAVDirect(this.experimentUniCh2, this.experimentUniCh3, sampleRate)], { type: "audio/wav" })
       : null;
 
     return { 
@@ -790,21 +790,12 @@ export class LiveAudioSession {
     };
   }
 
-  private mixMonoSamples(samplesA: Float32Array[], samplesB: Float32Array[]): Float32Array {
-    const mergedA = this.mergeSamples(samplesA);
-    const mergedB = this.mergeSamples(samplesB);
-    const length = Math.max(mergedA.length, mergedB.length);
-    const result = new Float32Array(length);
-    for (let i = 0; i < length; i++) {
-      const a = i < mergedA.length ? mergedA[i] : 0;
-      const b = i < mergedB.length ? mergedB[i] : 0;
-      result[i] = a + b;
-    }
-    return result;
-  }
+  private encodeMonoWAVDirect(chunksA: Float32Array[], chunksB: Float32Array[], sampleRate: number): ArrayBuffer {
+    const totalLengthA = chunksA.reduce((acc, val) => acc + val.length, 0);
+    const totalLengthB = chunksB.reduce((acc, val) => acc + val.length, 0);
+    const totalLength = Math.max(totalLengthA, totalLengthB);
 
-  private encodeWAV(samples: Float32Array, sampleRate: number) {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const buffer = new ArrayBuffer(44 + totalLength * 2);
     const view = new DataView(buffer);
 
     const writeString = (view: DataView, offset: number, string: string) => {
@@ -814,7 +805,7 @@ export class LiveAudioSession {
     };
 
     writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
+    view.setUint32(4, 36 + totalLength * 2, true);
     writeString(view, 8, 'WAVE');
     writeString(view, 12, 'fmt ');
     view.setUint32(16, 16, true);
@@ -825,19 +816,46 @@ export class LiveAudioSession {
     view.setUint16(32, 2, true); // Block align
     view.setUint16(34, 16, true); // Bits per sample
     writeString(view, 36, 'data');
-    view.setUint32(40, samples.length * 2, true);
+    view.setUint32(40, totalLength * 2, true);
 
-    let offset = 44;
-    for (let i = 0; i < samples.length; i++, offset += 2) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    let chunkIdxA = 0, offsetA = 0;
+    let chunkIdxB = 0, offsetB = 0;
+    let offsetOut = 44;
+
+    for (let i = 0; i < totalLength; i++) {
+      let sa = 0;
+      if (chunkIdxA < chunksA.length) {
+        sa = chunksA[chunkIdxA][offsetA];
+        offsetA++;
+        if (offsetA >= chunksA[chunkIdxA].length) {
+          offsetA = 0;
+          chunkIdxA++;
+        }
+      }
+
+      let sb = 0;
+      if (chunkIdxB < chunksB.length) {
+        sb = chunksB[chunkIdxB][offsetB];
+        offsetB++;
+        if (offsetB >= chunksB[chunkIdxB].length) {
+          offsetB = 0;
+          chunkIdxB++;
+        }
+      }
+
+      const s = Math.max(-1, Math.min(1, sa + sb));
+      view.setInt16(offsetOut, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offsetOut += 2;
     }
 
     return buffer;
   }
 
-  private encodeStereoWAV(leftSamples: Float32Array, rightSamples: Float32Array, sampleRate: number) {
-    const length = Math.min(leftSamples.length, rightSamples.length);
+  private encodeStereoWAVDirect(chunksL: Float32Array[], chunksR: Float32Array[], sampleRate: number): ArrayBuffer {
+    const totalLengthL = chunksL.reduce((acc, val) => acc + val.length, 0);
+    const totalLengthR = chunksR.reduce((acc, val) => acc + val.length, 0);
+    const length = Math.min(totalLengthL, totalLengthR);
+
     const buffer = new ArrayBuffer(44 + length * 4);
     const view = new DataView(buffer);
 
@@ -861,27 +879,40 @@ export class LiveAudioSession {
     writeString(view, 36, 'data');
     view.setUint32(40, length * 4, true);
 
-    let offset = 44;
+    let chunkIdxL = 0, offsetL = 0;
+    let chunkIdxR = 0, offsetR = 0;
+    let offsetOut = 44;
+
     for (let i = 0; i < length; i++) {
-      let sL = Math.max(-1, Math.min(1, leftSamples[i]));
-      view.setInt16(offset, sL < 0 ? sL * 0x8000 : sL * 0x7FFF, true);
-      offset += 2;
-      let sR = Math.max(-1, Math.min(1, rightSamples[i]));
-      view.setInt16(offset, sR < 0 ? sR * 0x8000 : sR * 0x7FFF, true);
-      offset += 2;
+      let sL = 0;
+      if (chunkIdxL < chunksL.length) {
+        sL = chunksL[chunkIdxL][offsetL];
+        offsetL++;
+        if (offsetL >= chunksL[chunkIdxL].length) {
+          offsetL = 0;
+          chunkIdxL++;
+        }
+      }
+
+      let sR = 0;
+      if (chunkIdxR < chunksR.length) {
+        sR = chunksR[chunkIdxR][offsetR];
+        offsetR++;
+        if (offsetR >= chunksR[chunkIdxR].length) {
+          offsetR = 0;
+          chunkIdxR++;
+        }
+      }
+
+      sL = Math.max(-1, Math.min(1, sL));
+      view.setInt16(offsetOut, sL < 0 ? sL * 0x8000 : sL * 0x7FFF, true);
+      offsetOut += 2;
+
+      sR = Math.max(-1, Math.min(1, sR));
+      view.setInt16(offsetOut, sR < 0 ? sR * 0x8000 : sR * 0x7FFF, true);
+      offsetOut += 2;
     }
 
     return buffer;
-  }
-
-  private mergeSamples(samples: Float32Array[]): Float32Array {
-    const totalLength = samples.reduce((acc, val) => acc + val.length, 0);
-    const result = new Float32Array(totalLength);
-    let offset = 0;
-    for (const sample of samples) {
-      result.set(sample, offset);
-      offset += sample.length;
-    }
-    return result;
   }
 }
