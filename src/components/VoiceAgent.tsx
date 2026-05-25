@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
 import JSZip from "jszip";
 
-const APP_VER_INFO = `App version: V0.1.1 (div.questionnaire, improved recording) SNR=${LiveAudioSession.SNR_DB}`;
+const APP_VER_INFO = `App version: V0.1.2(NO FIREBASE) SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
