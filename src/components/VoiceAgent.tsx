@@ -322,13 +322,14 @@ export default function VoiceAgent() {
           isListeningExpert,
           usingHeadphones
         },
-        tasks: tasks.reduce((acc, t) => ({ ...acc, [t.text]: t.understanding }), {}),
-        initialQuestionnaire: initialQuestionnaireAnswers,
-        finalQuestionnaire: finalQuestionnaireAnswers,
         metadata: {
           appVersion: APP_VER_INFO,
           timestamp: new Date().toISOString()
-        }
+        },
+        training_userinput: trainingTasks.reduce((acc: any, t) => ({ ...acc, [t.text]: t.understanding }), {}),
+        training_questionnaire: initialQuestionnaireAnswers,
+        experiment_userinput: tasks.reduce((acc: any, t) => ({ ...acc, [t.text]: t.understanding }), {}),
+        experiment_questionnaire: finalQuestionnaireAnswers
       };
 
       // 2. Create ZIP and trigger download
