@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
-import { db, loginAnonymously, auth } from "../lib/firebase";
+import { db, loginAnonymously, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
 
@@ -312,7 +312,7 @@ export default function VoiceAgent() {
 
       // 1. Prepare Full Data Dictionary
       const fullDataDictionary = {
-        exportId: docId,
+        export_id: docId,
         participant: {
           alias: participantAlias,
           age: participantAge,
@@ -322,9 +322,10 @@ export default function VoiceAgent() {
           isListeningExpert,
           usingHeadphones
         },
-        tasks: tasks.reduce((acc, t) => ({ ...acc, [t.text]: t.understanding }), {}),
-        initialQuestionnaire: initialQuestionnaireAnswers,
-        finalQuestionnaire: finalQuestionnaireAnswers,
+        training_inputfield: trainingTasks.reduce((acc, t) => ({ ...acc, [t.text]: t.understanding }), {}),
+        training_questionnaire: initialQuestionnaireAnswers,
+        experiment_inputfield: tasks.reduce((acc, t) => ({ ...acc, [t.text]: t.understanding }), {}),
+        experiment_questionnaire: finalQuestionnaireAnswers,
         metadata: {
           appVersion: APP_VER_INFO,
           timestamp: new Date().toISOString()
@@ -364,18 +365,23 @@ export default function VoiceAgent() {
       // 3. Authenticate and Upload to Firestore in the background (fully non-blocking)
       if (db) {
         loginAnonymously()
-          .then(() => {
-            return addDoc(collection(db, "results"), {
-              ...fullDataDictionary,
-              serverTimestamp: serverTimestamp()
-            });
-          })
-          .then(() => {
-            console.log("Firestore backup upload completed successfully.");
+          .then(async () => {
+            const path = "results";
+            try {
+              await addDoc(collection(db, path), {
+                ...fullDataDictionary,
+                serverTimestamp: serverTimestamp()
+              });
+              console.log("Firestore backup upload completed successfully.");
+            } catch (firestoreErr) {
+              handleFirestoreError(firestoreErr, OperationType.WRITE, path);
+            }
           })
           .catch((firestoreErr) => {
-            console.error("Firestore backup upload failed:", firestoreErr);
+            console.error("Firestore backup upload workflow failed:", firestoreErr);
           });
+      } else {
+        console.warn("Firestore database is null. Ensure VITE_FIREBASE_* environment variables are set in AI Studio UI settings.");
       }
       
       nextStep();

@@ -257,6 +257,24 @@ export class LiveAudioSession {
       throw new Error("Gemini API key is required to start a session.");
     }
     this.ai = new GoogleGenAI({ apiKey });
+
+    // Monkey-patch the webSocketFactory on the live module to fix a path formatting bug
+    // where the SDK uses a dot instead of a slash for the BidiGenerateContent endpoint.
+    if (this.ai.live && (this.ai.live as any).webSocketFactory) {
+      const liveInstance = this.ai.live as any;
+      const originalCreate = liveInstance.webSocketFactory.create;
+      liveInstance.webSocketFactory.create = function (url: string, headers: any, callbacks: any) {
+        let patchedUrl = url;
+        if (url.includes(".GenerativeService.BidiGenerateContent")) {
+          patchedUrl = url.replace(".GenerativeService.BidiGenerateContent", ".GenerativeService/BidiGenerateContent");
+          console.log("Patched Live Connect WebSocket URL to:", patchedUrl);
+        } else if (url.includes(".GenerativeService.BidiGenerateContentConstrained")) {
+          patchedUrl = url.replace(".GenerativeService.BidiGenerateContentConstrained", ".GenerativeService/BidiGenerateContentConstrained");
+          console.log("Patched Live Connect WebSocket URL (constrained) to:", patchedUrl);
+        }
+        return originalCreate.call(this, patchedUrl, headers, callbacks);
+      };
+    }
   }
 
  // --------------- HELPER: LOAD AUDIO FROM FILE ------------
