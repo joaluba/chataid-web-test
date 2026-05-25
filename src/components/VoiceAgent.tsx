@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import { doc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 
-const APP_VER_INFO = `App version: V0.1.3(WITH FIREBASE) SNR=${LiveAudioSession.SNR_DB}`;
+const APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
