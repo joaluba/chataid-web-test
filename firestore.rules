@@ -43,9 +43,9 @@ service cloud.firestore {
 
     // Match block for results
     match /results/{resultId} {
-      // Allow only creates for authenticated users
-      allow create: if isSignedIn()
-                    && isValidResult(incoming())
+      // Allow creation for anyone if the schema matches, to handle instances where API token restricts anonymous auth.
+      // Reading, updating, and deleting are completely forbidden.
+      allow create: if isValidResult(incoming())
                     && (incoming().serverTimestamp == null || incoming().serverTimestamp == request.time);
 
       // Block all reading, updating, deleting
