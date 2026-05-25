@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
-import { db, loginAnonymously, auth } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
 
 const APP_VER_INFO = `App version: V0.1.1 (div.questionnaire, improved recording) SNR=${LiveAudioSession.SNR_DB}`;
@@ -203,7 +201,6 @@ export default function VoiceAgent() {
 
   // User data form state
   const [isUploading, setIsUploading] = useState(false);
-  const [isConfigMissing, setIsConfigMissing] = useState(!import.meta.env.VITE_FIREBASE_API_KEY);
   
   const [initialQuestionnaireAnswers, setInitialQuestionnaireAnswers] = useState<Record<string, number>>(() => {
     const initial = {};
@@ -277,7 +274,7 @@ export default function VoiceAgent() {
               setIsCooldown(true);
               setTimeout(() => setIsCooldown(false), 10000);
             } else {
-              setError("Something went wrong with the connection.");
+              setError("Something went wrong with the connection: " + errorMessage);
             }
             setIsActive(false);
           },
@@ -288,7 +285,7 @@ export default function VoiceAgent() {
         setIsActive(true);
       } catch (err: any) {
         setIsConnecting(false);
-        setError("Could not access microphone or connect to Gemini.");
+        setError("Could not access microphone or connect to Gemini: " + (err?.message || String(err)));
       } finally {
         setIsConnecting(false);
       }
@@ -361,23 +358,6 @@ export default function VoiceAgent() {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 5000);
-
-      // 3. Authenticate and Upload to Firestore in the background (fully non-blocking)
-      if (db) {
-        loginAnonymously()
-          .then(() => {
-            return addDoc(collection(db, "results"), {
-              ...fullDataDictionary,
-              serverTimestamp: serverTimestamp()
-            });
-          })
-          .then(() => {
-            console.log("Firestore backup upload completed successfully.");
-          })
-          .catch((firestoreErr) => {
-            console.error("Firestore backup upload failed:", firestoreErr);
-          });
-      }
       
       nextStep();
     } catch (err: any) {
@@ -396,33 +376,7 @@ export default function VoiceAgent() {
 
 
 
-  if (isConfigMissing) {
-    return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black">
-        <div className="w-full max-w-lg border-2 border-red-500 rounded-[40px] p-10 text-center space-y-8 bg-red-50">
-          <h1 className="text-2xl font-bold text-red-600">Configuration Required</h1>
-          <div className="text-left space-y-4 text-sm text-gray-700">
-            <p>The Firebase environment variables are missing. Please configure them in AI Studio:</p>
-            <ol className="list-decimal list-inside space-y-2">
-              <li>Open <strong>Settings</strong> (gear icon) in the sidebar.</li>
-              <li>Go to <strong>Environment Variables</strong>.</li>
-              <li>Add the following keys from your Firebase Console:
-                <ul className="mt-2 ml-6 font-sans text-xs bg-white p-3 border border-red-200 rounded">
-                  <li>VITE_FIREBASE_API_KEY</li>
-                  <li>VITE_FIREBASE_AUTH_DOMAIN</li>
-                  <li>VITE_FIREBASE_PROJECT_ID</li>
-                  <li>VITE_FIREBASE_STORAGE_BUCKET</li>
-                  <li>VITE_FIREBASE_MESSAGING_SENDER_ID</li>
-                  <li>VITE_FIREBASE_APP_ID</li>
-                </ul>
-              </li>
-            </ol>
-            <p className="italic text-xs">The app will automatically refresh once these variables are saved.</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+
 
   // --- 0. AUTH ---
   if (currentStep === ExperimentStep.AUTH) {
