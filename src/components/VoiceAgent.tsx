@@ -2,56 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
-import { db, loginAnonymously, auth, isConfigValid } from "../lib/firebase";
+import { db, loginAnonymously, auth } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth?.currentUser?.uid || null,
-      email: auth?.currentUser?.email || null,
-      emailVerified: auth?.currentUser?.emailVerified || null,
-      isAnonymous: auth?.currentUser?.isAnonymous || null,
-      tenantId: auth?.currentUser?.tenantId || null,
-      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
 
 const APP_VER_INFO = `App version: V0.1.1 (div.questionnaire, improved recording) SNR=${LiveAudioSession.SNR_DB}`;
 
@@ -250,7 +203,7 @@ export default function VoiceAgent() {
 
   // User data form state
   const [isUploading, setIsUploading] = useState(false);
-  const [isConfigMissing, setIsConfigMissing] = useState(!isConfigValid);
+  const [isConfigMissing, setIsConfigMissing] = useState(!import.meta.env.VITE_FIREBASE_API_KEY);
   
   const [initialQuestionnaireAnswers, setInitialQuestionnaireAnswers] = useState<Record<string, number>>(() => {
     const initial = {};
@@ -306,21 +259,9 @@ export default function VoiceAgent() {
       setError(null);
       try {
         if (!sessionRef.current) {
-          let apiKey = "";
-          try {
-            const res = await fetch("/api/gemini-config");
-            const data = await res.json();
-            apiKey = data.apiKey;
-          } catch (fetchErr) {
-            console.warn("Could not fetch API key from backend:", fetchErr);
-          }
-          
+          const apiKey = process.env.GEMINI_API_KEY;
           if (!apiKey) {
-            apiKey = process.env.GEMINI_API_KEY || "";
-          }
-
-          if (!apiKey) {
-            throw new Error("No Gemini API key provided. Please configure GEMINI_API_KEY in the Environment Variables panel.");
+            throw new Error("No Gemini API key provided.");
           }
           sessionRef.current = new LiveAudioSession(apiKey);
         }
@@ -336,7 +277,7 @@ export default function VoiceAgent() {
               setIsCooldown(true);
               setTimeout(() => setIsCooldown(false), 10000);
             } else {
-              setError("Something went wrong with the connection: " + errorMessage);
+              setError("Something went wrong with the connection.");
             }
             setIsActive(false);
           },
@@ -347,7 +288,7 @@ export default function VoiceAgent() {
         setIsActive(true);
       } catch (err: any) {
         setIsConnecting(false);
-        setError("Could not access microphone or connect to Gemini: " + (err?.message || String(err)));
+        setError("Could not access microphone or connect to Gemini.");
       } finally {
         setIsConnecting(false);
       }
@@ -423,26 +364,12 @@ export default function VoiceAgent() {
 
       // 3. Authenticate and Upload to Firestore in the background (fully non-blocking)
       if (db) {
-        const path = "results";
-        const uploadDoc = async () => {
-          try {
-            return await addDoc(collection(db, path), {
+        loginAnonymously()
+          .then(() => {
+            return addDoc(collection(db, "results"), {
               ...fullDataDictionary,
               serverTimestamp: serverTimestamp()
             });
-          } catch (firestoreErr) {
-            handleFirestoreError(firestoreErr, OperationType.WRITE, path);
-          }
-        };
-
-        loginAnonymously()
-          .then(async () => {
-            console.log("Authenticated successfully, backing up to Firestore...");
-            return await uploadDoc();
-          })
-          .catch(async (authErr) => {
-            console.warn("Auth failed, attempting fallback unauthenticated Firestore upload:", authErr);
-            return await uploadDoc();
           })
           .then(() => {
             console.log("Firestore backup upload completed successfully.");
@@ -785,20 +712,13 @@ export default function VoiceAgent() {
         <h1 className="text-[25px] font-medium tracking-tight">1/4 Training</h1>
         
         <div className="flex flex-col items-center gap-12 w-full max-w-xl">
-          <div className="flex flex-col items-center gap-2">
-            <button
-              onClick={toggleSession}
-              disabled={isConnecting || isCooldown}
-              className="px-8 py-3 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-colors min-w-[124px] text-black"
-            >
-              {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
-            </button>
-            {error && (
-              <div className="text-red-500 text-xs font-sans text-center max-w-sm mt-1 select-text">
-                {error}
-              </div>
-            )}
-          </div>
+          <button
+            onClick={toggleSession}
+            disabled={isConnecting || isCooldown}
+            className="px-8 py-3 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-colors min-w-[124px] text-black"
+          >
+            {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
+          </button>
           
           <div className="relative w-full aspect-[16/4] border border-black rounded-[24px] overflow-hidden bg-white group select-none">
             <img
@@ -979,20 +899,13 @@ export default function VoiceAgent() {
         <h1 className="text-[25px] font-medium tracking-tight">3/4 Experiment</h1>
         
         <div className="flex flex-col items-center gap-12 w-full max-w-xl">
-          <div className="flex flex-col items-center gap-2">
-            <button 
-              onClick={toggleSession} 
-              disabled={isConnecting || isCooldown}
-              className="px-12 py-4 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-all text-black"
-            >
-              {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
-            </button>
-            {error && (
-              <div className="text-red-500 text-xs font-sans text-center max-w-sm mt-1 select-text">
-                {error}
-              </div>
-            )}
-          </div>
+          <button 
+            onClick={toggleSession} 
+            disabled={isConnecting || isCooldown}
+            className="px-12 py-4 bg-white border border-black rounded-lg text-base font-sans hover:bg-gray-50 transition-all text-black"
+          >
+            {isConnecting ? <Loader2 className="animate-spin" /> : isActive ? "Stop session" : "Start session"}
+          </button>
           
           <div className="relative w-full aspect-[16/4] border border-black rounded-[24px] overflow-hidden bg-white group select-none">
             <img

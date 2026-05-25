@@ -3,8 +3,5 @@
   "description": "Research tool for measuring communication abilities with an AI voice agent in noise environments",
   "requestFramePermissions": [
     "microphone"
-  ],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
