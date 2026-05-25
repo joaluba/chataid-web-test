@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "ExperimentSession": {
+      "title": "ExperimentSession",
+      "description": "The completed experiment data representing participant demographics, questionnaire responses, and task inputs.",
+      "type": "object",
+      "properties": {
+        "exportId": {
+          "type": "string",
+          "description": "Unique identifier of the exported session based on the alias and timestamp."
+        },
+        "participant": {
+          "type": "object",
+          "description": "Demographic information about the participant.",
+          "properties": {
+            "alias": { "type": "string" },
+            "age": { "type": "string" },
+            "gender": { "type": "string" },
+            "isNativeSpeaker": { "type": "string" },
+            "hearingStatus": { "type": "string" },
+            "isListeningExpert": { "type": "string" },
+            "usingHeadphones": { "type": "string" }
+          },
+          "required": ["alias", "age", "gender", "isNativeSpeaker", "hearingStatus", "isListeningExpert", "usingHeadphones"]
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Session run metadata.",
+          "properties": {
+            "appVersion": { "type": "string" },
+            "timestamp": { "type": "string" }
+          },
+          "required": ["appVersion", "timestamp"]
+        },
+        "training_userinput": {
+          "type": "object",
+          "description": "Key-value map of training task text to user input responses."
+        },
+        "training_questionnaire": {
+          "type": "object",
+          "description": "Key-value map of question identifier to 1-7 ratings for training."
+        },
+        "experiment_userinput": {
+          "type": "object",
+          "description": "Key-value map of experiment task text to user input responses."
+        },
+        "experiment_questionnaire": {
+          "type": "object",
+          "description": "Key-value map of question identifier to 1-7 ratings for experiment."
+        }
+      },
+      "required": ["exportId", "participant", "metadata", "training_userinput", "training_questionnaire", "experiment_userinput", "experiment_questionnaire"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "ExperimentSession",
+      "description": "Collection where each document contains a complete set of session data."
+    }
+  }
+}

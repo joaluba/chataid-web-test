@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (default deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Sessions Collection Rules
+    match /sessions/{sessionId} {
+      // Only allow creation of new sessions if they meet all validation requirements
+      allow create: if (
+        isValidId(sessionId) 
+        && isValidExperimentSession(request.resource.data)
+      );
+
+      // Explicitly block all other operations (read, list, update, delete) to protect privacy
+      allow get: if false;
+      allow list: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Helper: Validates Document ID
+    function isValidId(id) { 
+      return id is string 
+        && id.size() <= 128 
+        && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // Helper: Enforces rigorous schema validations (Anti-Update-Gap)
+    function isValidExperimentSession(data) {
+      return (
+        // Verify EXACT required root keys structure (No Ghost / Shadow Fields Allowed)
+        data.keys().hasAll([
+          'exportId', 
+          'participant', 
+          'metadata', 
+          'training_userinput', 
+          'training_questionnaire', 
+          'experiment_userinput', 
+          'experiment_questionnaire'
+        ]) 
+        && data.keys().size() == 7
+
+        // Field Types and Size/Length constraints of properties
+        && data.exportId is string 
+        && data.exportId.size() <= 128
+        
+        // Participant fields mapping and sub-properties verification
+        && data.participant is map
+        && data.participant.keys().hasAll([
+          'alias', 
+          'age', 
+          'gender', 
+          'isNativeSpeaker', 
+          'hearingStatus', 
+          'isListeningExpert', 
+          'usingHeadphones'
+        ])
+        && data.participant.keys().size() == 7
+        && data.participant.alias is string && data.participant.alias.size() <= 100
+        && data.participant.age is string && data.participant.age.size() <= 10
+        && data.participant.gender is string && data.participant.gender.size() <= 30
+        && data.participant.isNativeSpeaker is string && data.participant.isNativeSpeaker.size() <= 10
+        && data.participant.hearingStatus is string && data.participant.hearingStatus.size() <= 50
+        && data.participant.isListeningExpert is string && data.participant.isListeningExpert.size() <= 10
+        && data.participant.usingHeadphones is string && data.participant.usingHeadphones.size() <= 10
+
+        // Metadata block structure
+        && data.metadata is map
+        && data.metadata.keys().hasAll(['appVersion', 'timestamp'])
+        && data.metadata.keys().size() == 2
+        && data.metadata.appVersion is string && data.metadata.appVersion.size() <= 200
+        && data.metadata.timestamp is string && data.metadata.timestamp.size() <= 50
+
+        // Key-value map blocks (no size limit checks on maps directly, but must be maps)
+        && data.training_userinput is map
+        && data.training_questionnaire is map
+        && data.experiment_userinput is map
+        && data.experiment_questionnaire is map
+      );
+    }
+  }
+}

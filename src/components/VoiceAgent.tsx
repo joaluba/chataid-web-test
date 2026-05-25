@@ -3,8 +3,10 @@ import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
 import JSZip from "jszip";
+import { doc, setDoc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 
-const APP_VER_INFO = `App version: V0.1.2(NO FIREBASE) SNR=${LiveAudioSession.SNR_DB}`;
+const APP_VER_INFO = `App version: V0.1.3(WITH FIREBASE) SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
@@ -155,22 +157,22 @@ const AudioVisualizer = ({ session }: { session: LiveAudioSession | null }) => {
 };
 
 const INITIAL_TASKS = [
-  { id: 1, text: "Price of coffee with milk", understanding: "" },
-  { id: 2, text: "Milk options", understanding: "" },
-  { id: 3, text: "Is vegan milk more expensive?", understanding: "" },
-  { id: 4, text: "What's the cafe specialty cake?", understanding: "" },
-  { id: 5, text: "Name of the wifi", understanding: "" },
-  { id: 6, text: "Password of the Wifi", understanding: "" },
-  { id: 7, text: "Maximum table duration", understanding: "" },
-  { id: 8, text: "Evening event", understanding: "" },
-  { id: 9, text: "Artist name", understanding: "" },
-  { id: 10, text: "Cafe's closing time", understanding: "" },
+{ id: 1, text: "Price of a coffee with milk", understanding: "" },
+{ id: 2, text: "Milk options available", understanding: "" },
+{ id: 3, text: "Is vegan milk more expensive?", understanding: "" },
+{ id: 4, text: "What is the cafe's specialty cake?", understanding: "" },
+{ id: 5, text: "Wi-Fi network name", understanding: "" },
+{ id: 6, text: "Wi-Fi password", understanding: "" },
+{ id: 7, text: "Maximum table usage duration", understanding: "" },
+{ id: 8, text: "Evening event", understanding: "" },
+{ id: 9, text: "Artist's name", understanding: "" },
+{ id: 10, text: "Cafe closing time", understanding: "" },
 ];
 
 const TRAINING_TASKS_INITIAL = [
-  { id: 101, text: "Price of the single metro ticket", understanding: "" },
-  { id: 102, text: "Temperature of the water in the sea today", understanding: "" },
-  { id: 103, text: "Which museums have a free entrance today", understanding: "" },
+  { id: 101, text: "Price of a single metro ticket", understanding: "" },
+  { id: 102, text: "Current sea water temperature", understanding: "" },
+  { id: 103, text: "Which museums have free admission today", understanding: "" },
   { id: 104, text: "Tourist office closing time", understanding: "" },
 ];
 
@@ -328,6 +330,14 @@ export default function VoiceAgent() {
         experiment_userinput: tasks.reduce((acc: any, t) => ({ ...acc, [t.text]: t.understanding }), {}),
         experiment_questionnaire: finalQuestionnaireAnswers
       };
+
+      // 1b. Save JSON data securely to Firebase Firestore
+      try {
+        await setDoc(doc(db, "sessions", docId), fullDataDictionary);
+      } catch (firestoreError) {
+        console.error("Failed to save session to Firestore:", firestoreError);
+        handleFirestoreError(firestoreError, OperationType.WRITE, `sessions/${docId}`);
+      }
 
       // 2. Create ZIP and trigger download
       const zip = new (JSZip as any)();
