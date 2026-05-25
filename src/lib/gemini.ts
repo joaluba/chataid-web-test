@@ -1,67 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// ----- MODULE-LEVEL PRE-FETCH CACHE -----
-let cachedHrirArrayBuffer: ArrayBuffer | null = null;
-let cachedNoiseArrayBuffer: ArrayBuffer | null = null;
-let hrirFetchPromise: Promise<ArrayBuffer> | null = null;
-let noiseFetchPromise: Promise<ArrayBuffer> | null = null;
-
-const IN_BROWSER = typeof window !== "undefined";
-const CUSTOM_HRIR_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776699826/cafe_rir_bin_pnaczh.wav";
-const NOISE_FILE_URL = "https://res.cloudinary.com/dqttqwfib/video/upload/v1776700340/cafe_noise_bin_pbsmfe.mp3";
-
-export function prefetchAudioFiles() {
-  if (!IN_BROWSER) return;
-
-  if (!hrirFetchPromise) {
-    console.log("Pre-fetching HRIR ArrayBuffer on page load...");
-    hrirFetchPromise = fetch(CUSTOM_HRIR_URL)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then(buf => {
-        cachedHrirArrayBuffer = buf;
-        console.log("HRIR ArrayBuffer pre-fetched and cached successfully!");
-        return buf;
-      })
-      .catch(err => {
-        console.error("Failed to pre-fetch HRIR in background:", err);
-        hrirFetchPromise = null; // Reset to allow retries
-        throw err;
-      });
-  }
-
-  if (!noiseFetchPromise) {
-    console.log("Pre-fetching Noise ArrayBuffer on page load...");
-    noiseFetchPromise = fetch(NOISE_FILE_URL)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then(buf => {
-        cachedNoiseArrayBuffer = buf;
-        console.log("Noise ArrayBuffer pre-fetched and cached successfully!");
-        return buf;
-      })
-      .catch(err => {
-        console.error("Failed to pre-fetch Noise in background:", err);
-        noiseFetchPromise = null; // Reset to allow retries
-        throw err;
-      });
-  }
-}
-
-// Start prefetching on module load in client environment
-if (IN_BROWSER) {
-  try {
-    prefetchAudioFiles();
-  } catch (e) {
-    console.error("Failed to start automatic pre-fetch:", e);
-  }
-}
-
-
 export const INSTRUCTION_PROMPT = `
 
 I. YOUR ROLE:
@@ -319,47 +257,12 @@ export class LiveAudioSession {
       throw new Error("Gemini API key is required to start a session.");
     }
     this.ai = new GoogleGenAI({ apiKey });
-
-    // Monkey-patch the webSocketFactory on the live module to fix a path formatting bug
-    // where the SDK uses a dot instead of a slash for the BidiGenerateContent endpoint.
-    if (this.ai.live && (this.ai.live as any).webSocketFactory) {
-      const liveInstance = this.ai.live as any;
-      const originalCreate = liveInstance.webSocketFactory.create;
-      liveInstance.webSocketFactory.create = function (url: string, headers: any, callbacks: any) {
-        let patchedUrl = url;
-        if (url.includes(".GenerativeService.BidiGenerateContent")) {
-          patchedUrl = url.replace(".GenerativeService.BidiGenerateContent", ".GenerativeService/BidiGenerateContent");
-          console.log("Patched Live Connect WebSocket URL to:", patchedUrl);
-        } else if (url.includes(".GenerativeService.BidiGenerateContentConstrained")) {
-          patchedUrl = url.replace(".GenerativeService.BidiGenerateContentConstrained", ".GenerativeService/BidiGenerateContentConstrained");
-          console.log("Patched Live Connect WebSocket URL (constrained) to:", patchedUrl);
-        }
-        return originalCreate.call(this, patchedUrl, headers, callbacks);
-      };
-    }
   }
 
  // --------------- HELPER: LOAD AUDIO FROM FILE ------------
   private async loadAudioFromFile(context: AudioContext, url: string): Promise<AudioBuffer> {
-    let arrayBuffer: ArrayBuffer;
-    if (url === LiveAudioSession.CUSTOM_HRIR_URL) {
-      if (!cachedHrirArrayBuffer) {
-        console.log("HRIR ArrayBuffer not cached on first demand, waiting for prefetch...");
-        prefetchAudioFiles();
-        await hrirFetchPromise;
-      }
-      arrayBuffer = cachedHrirArrayBuffer!.slice(0);
-    } else if (url === LiveAudioSession.NOISE_FILE_URL) {
-      if (!cachedNoiseArrayBuffer) {
-        console.log("Noise ArrayBuffer not cached on first demand, waiting for prefetch...");
-        prefetchAudioFiles();
-        await noiseFetchPromise;
-      }
-      arrayBuffer = cachedNoiseArrayBuffer!.slice(0);
-    } else {
-      const response = await fetch(url);
-      arrayBuffer = await response.arrayBuffer();
-    }
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
     return await context.decodeAudioData(arrayBuffer);
   }
 
