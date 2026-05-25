@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
+import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT, prefetchAudioFiles } from "../lib/gemini";
 import { db, loginAnonymously, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
@@ -394,6 +394,7 @@ export default function VoiceAgent() {
   };
 
   useEffect(() => {
+    prefetchAudioFiles();
     return () => {
       sessionRef.current?.stop();
     };
