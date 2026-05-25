@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Schema validation for Result
+    function isValidResult(data) {
+      return data.keys().hasAll([
+        'exportId',
+        'participant',
+        'metadata',
+        'training_userinput',
+        'training_questionnaire',
+        'experiment_userinput',
+        'experiment_questionnaire'
+      ]) &&
+      data.keys().size() <= 9 &&
+      data.exportId is string &&
+      data.exportId.size() <= 128 &&
+      data.participant is map &&
+      data.participant.alias is string &&
+      data.participant.alias.size() <= 100 &&
+      data.metadata is map &&
+      data.metadata.appVersion is string &&
+      data.metadata.timestamp is string;
+    }
+
+    // Match block for results
+    match /results/{resultId} {
+      // Allow only creates for authenticated users
+      allow create: if isSignedIn()
+                    && isValidResult(incoming())
+                    && (incoming().serverTimestamp == null || incoming().serverTimestamp == request.time);
+
+      // Block all reading, updating, deleting
+      allow read, update, delete: if false;
+    }
+  }
+}

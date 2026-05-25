@@ -2,9 +2,56 @@ import React, { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Coffee, Music, Clock, Info, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveAudioSession, INSTRUCTION_PROMPT, EXPERIMENT_PROMPT } from "../lib/gemini";
-import { db, loginAnonymously, auth } from "../lib/firebase";
+import { db, loginAnonymously, auth, isConfigValid } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import JSZip from "jszip";
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid || null,
+      email: auth?.currentUser?.email || null,
+      emailVerified: auth?.currentUser?.emailVerified || null,
+      isAnonymous: auth?.currentUser?.isAnonymous || null,
+      tenantId: auth?.currentUser?.tenantId || null,
+      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const APP_VER_INFO = `App version: V0.1.1 (div.questionnaire, improved recording) SNR=${LiveAudioSession.SNR_DB}`;
 
@@ -203,7 +250,7 @@ export default function VoiceAgent() {
 
   // User data form state
   const [isUploading, setIsUploading] = useState(false);
-  const [isConfigMissing, setIsConfigMissing] = useState(!import.meta.env.VITE_FIREBASE_API_KEY);
+  const [isConfigMissing, setIsConfigMissing] = useState(!isConfigValid);
   
   const [initialQuestionnaireAnswers, setInitialQuestionnaireAnswers] = useState<Record<string, number>>(() => {
     const initial = {};
@@ -365,11 +412,16 @@ export default function VoiceAgent() {
       // 3. Authenticate and Upload to Firestore in the background (fully non-blocking)
       if (db) {
         loginAnonymously()
-          .then(() => {
-            return addDoc(collection(db, "results"), {
-              ...fullDataDictionary,
-              serverTimestamp: serverTimestamp()
-            });
+          .then(async () => {
+            const path = "results";
+            try {
+              return await addDoc(collection(db, path), {
+                ...fullDataDictionary,
+                serverTimestamp: serverTimestamp()
+              });
+            } catch (firestoreErr) {
+              handleFirestoreError(firestoreErr, OperationType.WRITE, path);
+            }
           })
           .then(() => {
             console.log("Firestore backup upload completed successfully.");

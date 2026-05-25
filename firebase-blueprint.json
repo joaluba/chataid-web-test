@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "Result": {
+      "title": "Result",
+      "description": "Experiment result data containing participant demographics, training, and experiment responses.",
+      "type": "object",
+      "properties": {
+        "exportId": {
+          "type": "string",
+          "description": "Unique identifier of the exported result"
+        },
+        "participant": {
+          "type": "object",
+          "description": "Demographic information of the participant",
+          "properties": {
+            "alias": { "type": "string" },
+            "age": { "type": "string" },
+            "gender": { "type": "string" },
+            "isNativeSpeaker": { "type": "boolean" },
+            "hearingStatus": { "type": "string" },
+            "isListeningExpert": { "type": "boolean" },
+            "usingHeadphones": { "type": "boolean" }
+          },
+          "required": ["alias"]
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Metadata consisting of app version and timestamp",
+          "properties": {
+            "appVersion": { "type": "string" },
+            "timestamp": { "type": "string" }
+          },
+          "required": ["appVersion", "timestamp"]
+        },
+        "training_userinput": {
+          "type": "object",
+          "description": "Training task user input details"
+        },
+        "training_questionnaire": {
+          "type": "object",
+          "description": "Answers to the training questionnaire"
+        },
+        "experiment_userinput": {
+          "type": "object",
+          "description": "Main task experiment user input details"
+        },
+        "experiment_questionnaire": {
+          "type": "object",
+          "description": "Answers to the final experiment questionnaire"
+        },
+        "serverTimestamp": {
+          "type": "object",
+          "description": "Server assigned creation timestamp"
+        }
+      },
+      "required": [
+        "exportId",
+        "participant",
+        "metadata",
+        "training_userinput",
+        "training_questionnaire",
+        "experiment_userinput",
+        "experiment_questionnaire"
+      ]
+    }
+  },
+  "firestore": {
+    "results/{resultId}": {
+      "schema": "Result",
+      "description": "Uploaded results for the experiment runs"
+    }
+  }
+}
