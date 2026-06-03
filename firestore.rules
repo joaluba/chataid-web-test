@@ -24,8 +24,7 @@ service cloud.firestore {
     // Helper: Validates Document ID
     function isValidId(id) { 
       return id is string 
-        && id.size() <= 128 
-        && id.matches('^[a-zA-Z0-9_ \\-]+$'); 
+        && id.size() <= 128; 
     }
 
     // Helper: Enforces rigorous schema validations (Anti-Update-Gap)
