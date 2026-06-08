@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import { doc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 
-const APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
+let APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
@@ -230,6 +230,7 @@ export default function VoiceAgent() {
   const [usingHeadphones, setUsingHeadphones] = useState("yes");
   const [hasConsented, setHasConsented] = useState(false);
   const [passphrase, setPassphrase] = useState("");
+  const [conditionPhrase, setConditionPhrase] = useState("");
   const [passphraseError, setPassphraseError] = useState(false);
 
   const [introRead, setIntroRead] = useState(false);
@@ -392,6 +393,18 @@ export default function VoiceAgent() {
   if (currentStep === ExperimentStep.AUTH) {
     const handleAuthorize = () => {
       if (passphrase === "ChatAid2026") {
+        if (conditionPhrase) {
+          const lowerPhrase = conditionPhrase.toLowerCase();
+          const snrIndex = lowerPhrase.indexOf("snr=");
+          if (snrIndex !== -1) {
+            const snrPart = conditionPhrase.slice(snrIndex + 4).trim();
+            const numVal = parseFloat(snrPart);
+            if (!isNaN(numVal)) {
+              LiveAudioSession.SNR_DB = numVal;
+              APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
+            }
+          }
+        }
         nextStep();
       } else {
         setPassphraseError(true);
@@ -406,7 +419,7 @@ export default function VoiceAgent() {
         <div className="w-full max-w-sm p-10 text-center space-y-8">
           <h1 className="text-[25px] font-medium text-black">Restricted access</h1>
           <p className="text-black text-base italic leading-relaxed">
-            Please enter the passphrase provided by the researcher to continue.
+            Please enter the passphrase and condition phrase provided by the researcher to continue.
           </p>
           <div className="space-y-4">
             <input
@@ -420,6 +433,16 @@ export default function VoiceAgent() {
               className={`w-full text-center text-base bg-transparent border-b ${passphraseError ? "border-red-500" : "border-black"} pb-1 focus:outline-none text-black font-sans`}
               placeholder="Enter passphrase"
               autoFocus
+            />
+            <input
+              type="text"
+              value={conditionPhrase}
+              onChange={(e) => {
+                setConditionPhrase(e.target.value);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleAuthorize()}
+              className="w-full text-center text-base bg-transparent border-b border-black pb-1 focus:outline-none text-black font-sans"
+              placeholder="Enter condition phrase"
             />
             {passphraseError && (
               <p className="text-base text-red-500 italic">Incorrect passphrase. Please try again.</p>
