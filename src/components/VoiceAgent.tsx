@@ -6,7 +6,8 @@ import JSZip from "jszip";
 import { doc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
 
-let APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
+const BASE_APP_VERSION = "App version: V0.1.4(ZIP+FIREBASE checkpoint)";
+let APP_VER_INFO = `${BASE_APP_VERSION} SNR=${LiveAudioSession.SNR_DB}`;
 
 enum ExperimentStep {
   AUTH = 0,
@@ -401,7 +402,7 @@ export default function VoiceAgent() {
             const numVal = parseFloat(snrPart);
             if (!isNaN(numVal)) {
               LiveAudioSession.SNR_DB = numVal;
-              APP_VER_INFO = `App version: V0.1.4(ZIP+FIREBASE checkpoint) SNR=${LiveAudioSession.SNR_DB}`;
+              APP_VER_INFO = `${BASE_APP_VERSION} SNR=${LiveAudioSession.SNR_DB}`;
             }
           }
         }
@@ -414,7 +415,7 @@ export default function VoiceAgent() {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 font-sans text-black relative">
         <div className="absolute bottom-4 left-4 text-xs text-gray-500 font-sans uppercase tracking-wider">
-          {APP_VER_INFO}
+          {BASE_APP_VERSION}
         </div>
         <div className="w-full max-w-sm p-10 text-center space-y-8">
           <h1 className="text-[25px] font-medium text-black">Restricted access</h1>
